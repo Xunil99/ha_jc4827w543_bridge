@@ -83,12 +83,14 @@ template:
 | QSPI CLK | 47 |
 | QSPI Data 0..3 | 21, 48, 40, 39 |
 | LCD CS | 45 |
-| LCD Reset | 4 |
+| LCD Reset | (kein HW-Reset, Software-Reset via init_sequence) |
 | Backlight (LEDC PWM) | 1 |
 | Touch I2C SDA | 8 |
 | Touch I2C SCL | 4 |
 | Touch INT | 3 |
 | Touch Reset | 38 |
 
-Der Touch-Controller ist ein CST816. Aktuell nicht fuer Interaktion
-genutzt, aber vorbereitet.
+Der Touch-Controller ist beim JC4827W543C ein **GT911** (laut offizieller
+ESPHome-Geraete-Referenz). Bei anderen Varianten (z.B. JC4827W543R mit
+CST816) die `platform:`-Zeile im `touchscreen:`-Block entsprechend anpassen.
+Aktuell ist Touch noch nicht fuer Interaktion genutzt, aber vorbereitet.

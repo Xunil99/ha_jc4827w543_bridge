@@ -224,7 +224,9 @@ display:
     model: CUSTOM
     data_rate: 40MHz
     cs_pin: GPIO45
-    reset_pin: GPIO4
+    # Kein Hardware-Reset-Pin: das JC4827W543 hat keinen separat
+    # gefuehrten Reset auf den ESP32 verdrahtet. Reset passiert per
+    # Software ueber die init_sequence unten.
     dimensions:
       width: 480
       height: 272
@@ -252,9 +254,10 @@ display:
       - [0x29]
 
 touchscreen:
-  - platform: cst816
+  # JC4827W543C nutzt einen GT911. Falls Du eine andere Variante hast
+  # (z.B. mit CST816), die platform-Zeile entsprechend anpassen.
+  - platform: gt911
     id: ts_main
-    address: 0x15
     i2c_id: i2c_bus
     interrupt_pin: GPIO3
     reset_pin: GPIO38
