@@ -13,7 +13,7 @@
 substitutions:
   device_name: "esphome-web-4e0964"
   friendly_name: "eBike Cockpit"
-  bike_name: "Performance CX"
+  bike_name: "Cube Stereo Hybrid"
 
   # Jede Entitaet einzeln konfigurierbar. Setze fehlende Sensoren auf
   # eine nicht existierende Entitaet (z.B. "sensor.dummy"), dann bleibt
@@ -22,8 +22,8 @@ substitutions:
   entity_charger_connected: "binary_sensor.gartenhaus_ebike_charger_connected"
   # Anstelle der nicht existenten Reichweite zeigen wir die letzte Tour.
   # Alternativ: charge_power_live, battery_health, charging_state.
-  entity_secondary: "sensor.gartenhaus_ebike_last_tour_distance"
-  entity_odometer: "sensor.gartenhaus_ebike_odometer"
+  entity_secondary: "sensor.drive_unit_performance_line_cx_last_ride_distance"
+  entity_odometer: "sensor.gartenhaus_ebike_odometer_live"
   entity_days_since: "sensor.gartenhaus_ebike_days_since_last_tour"
   entity_maint_count: "sensor.gartenhaus_ebike_due_maintenance_count"
   entity_maint_label: "sensor.gartenhaus_ebike_next_maintenance_label"
@@ -246,9 +246,10 @@ display:
     # sich gegenseitig ueberschreiben.
     auto_clear_enabled: false
     update_interval: never
-    # invert_colors zusaetzlich zur init_sequence (0x7A,0x5F). Die
-    # Referenz setzt beides explizit.
-    invert_colors: true
+    # KEIN invert_colors: true hier! Die init_sequence weiter unten
+    # enthaelt bereits 0x7A,0x5F, also das Invert-Display-Kommando
+    # des NV3041A. Beides gleichzeitig = doppelte Invertierung =
+    # weisser Hintergrund.
     cs_pin:
       number: GPIO45
       ignore_strapping_warning: true
@@ -303,12 +304,6 @@ lvgl:
   buffer_size: 25%
   color_depth: 16
   bg_color: 0x000000
-  # disp_bg_color + disp_bg_opa decken den Display-Hintergrund ab,
-  # bevor irgendwelche Pages oder Widgets gezeichnet werden. Ohne das
-  # zeigt LVGL ein Default-Theme-Schraffurmuster, wo Widgets nicht
-  # voll deckend sind.
-  disp_bg_color: 0x000000
-  disp_bg_opa: COVER
   text_font: montserrat_20
   default_font: montserrat_20
   align: top_mid
