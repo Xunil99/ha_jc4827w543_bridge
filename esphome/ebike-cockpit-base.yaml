@@ -23,7 +23,7 @@ substitutions:
   # der User braucht hier nichts manuell einzustellen. Falls die
   # Entitaet bei Dir anders heisst (z.B. weather.forecast_home), hier
   # umbiegen.
-  entity_weather: "weather.home"
+  entity_weather: "weather.wetter"
 
 esphome:
   name: ${device_name}
@@ -438,7 +438,7 @@ lvgl:
       bg_color: 0x000000
       widgets:
         # ---------- Build-Marker (Diagnose) -----------------------------
-        # Wenn dieses Label "BUILD v0.6 weather" zeigt: neue Firmware laeuft.
+        # Wenn dieses Label "BUILD v0.7 polish" zeigt: neue Firmware laeuft.
         # Wenn es fehlt oder anders aussieht: Flash ist nicht angekommen.
         - obj:
             x: 0
@@ -457,7 +457,7 @@ lvgl:
                   text_align: CENTER
                   text_color: 0xFFFFFF
                   text_font: font_small
-                  text: "BUILD v0.6 weather"
+                  text: "BUILD v0.7 polish"
 
         # ---------- Header: Bike-Name (klein, oben links) ---------------
         - obj:
@@ -534,11 +534,9 @@ lvgl:
             y: 148
             width: 272
             height: 120
-            bg_color: 0x0A0A0A
+            bg_color: 0x000000
             bg_opa: COVER
-            border_color: 0x222222
-            border_width: 1
-            radius: 8
+            border_width: 0
             pad_all: 8
             scrollbar_mode: "off"
             scrollable: false
@@ -568,6 +566,10 @@ lvgl:
                   min_value: 0
                   max_value: 100
                   value: 0
+                  # Bar-Indikator gruen statt LVGL-Default (gelb/orange).
+                  indicator:
+                    bg_color: 0x4ADE80
+                    bg_opa: COVER
               - label:
                   id: lvgl_secondary
                   x: 0
@@ -605,11 +607,9 @@ lvgl:
             y: 316
             width: 272
             height: 110
-            bg_color: 0x0A0A0A
+            bg_color: 0x000000
             bg_opa: COVER
-            border_color: 0x222222
-            border_width: 1
-            radius: 8
+            border_width: 0
             pad_all: 8
             scrollbar_mode: "off"
             scrollable: false
