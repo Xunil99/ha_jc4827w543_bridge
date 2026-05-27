@@ -354,6 +354,29 @@ globals:
 # Datenanbindung: HA-Sensoren spiegeln, alle Entitaeten konfigurierbar.
 # ---------------------------------------------------------------------------
 sensor:
+  # Sonnenhoehe fuer automatisches Backlight-Dimming. ESPHome rechnet
+  # aus Koordinaten + Uhrzeit. Elevation > 0 = Sonne ueber Horizont = Tag.
+  - platform: sun
+    sun_id: home_sun
+    name: "Sun Elevation"
+    type: elevation
+    id: sun_elevation
+    internal: true
+    update_interval: 60s
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return x > 0.0f;'
+            then:
+              - output.set_level:
+                  id: backlight_pwm
+                  level: 1.0
+            else:
+              - output.set_level:
+                  id: backlight_pwm
+                  level: 0.2
+
   - platform: homeassistant
     id: bike_battery
     entity_id: ${entity_battery_soc}
@@ -559,25 +582,6 @@ binary_sensor:
             id: lvgl_charge_icon
             text: !lambda 'return std::string(id(bike_charging).state ? "Laedt" : "");'
 
-  # Sonne-ueber-Horizont fuer automatisches Backlight-Dimming.
-  # Tags 100%, nachts 20%. ESPHome rechnet das aus Koordinaten + Uhrzeit.
-  - platform: sun
-    sun_id: home_sun
-    id: sun_is_up
-    internal: true
-    on_state:
-      then:
-        - if:
-            condition:
-              lambda: 'return id(sun_is_up).state;'
-            then:
-              - output.set_level:
-                  id: backlight_pwm
-                  level: 1.0
-            else:
-              - output.set_level:
-                  id: backlight_pwm
-                  level: 0.2
 
 text_sensor:
   - platform: homeassistant
