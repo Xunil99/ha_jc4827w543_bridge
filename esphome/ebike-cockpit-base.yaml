@@ -110,10 +110,16 @@ light:
     default_transition_length: 250ms
 
 display:
-  - platform: qspi_dbi
+  # WICHTIG: mipi_spi statt qspi_dbi. ESPHome 2026.5.x hat qspi_dbi
+  # deprecated und der alte Code unterstuetzt keine Hardware-Rotation -
+  # LVGL fiel auf Software-Rotation zurueck, was die verwaschene
+  # Schrift und IRAM-100%-Auslastung erzeugt hat. mipi_spi macht
+  # Hardware-Rotation ueber das MADCTL-Register (0x36) im NV3041A.
+  - platform: mipi_spi
     model: CUSTOM
     id: main_display
     spi_id: qspi_bus
+    bus_mode: quad
     data_rate: 20MHz
     cs_pin:
       number: GPIO45
@@ -364,7 +370,7 @@ lvgl:
       bg_color: 0x000000
       widgets:
         # ---------- Build-Marker (Diagnose) -----------------------------
-        # Wenn dieses Label "BUILD v0.2" zeigt: neue Firmware laeuft.
+        # Wenn dieses Label "BUILD v0.3 mipi_spi" zeigt: neue Firmware laeuft.
         # Wenn es fehlt oder anders aussieht: Flash ist nicht angekommen.
         - obj:
             x: 0
@@ -383,7 +389,7 @@ lvgl:
                   text_align: CENTER
                   text_color: 0xFFFFFF
                   text_font: font_small
-                  text: "BUILD v0.2"
+                  text: "BUILD v0.3 mipi_spi"
 
         # ---------- Header: Bike-Name (klein, oben links) ---------------
         - obj:
