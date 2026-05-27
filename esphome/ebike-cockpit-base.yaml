@@ -24,6 +24,15 @@ substitutions:
   # Entitaet bei Dir anders heisst (z.B. weather.forecast_home), hier
   # umbiegen.
   entity_weather: "weather.wetter"
+  # Sonnenuntergang als HH:MM-Local-Time-String. HA-Template-Sensor
+  # noetig (siehe README). Default-Name passend zum Template-Beispiel.
+  entity_sunset: "sensor.sun_next_setting_local"
+  # Wochenkilometer (laufende Woche). HA-Template-Sensor noetig.
+  entity_week_distance: "sensor.gartenhaus_ebike_week_distance"
+  # 5-Tage-Wetter als compact-string: cond1|max1|min1|cond2|max2|min2|...
+  # 15 Tokens (5 Tage x 3 Felder). HA-Template-Sensor mit
+  # weather.get_forecasts-Service-Call noetig.
+  entity_forecast_5day: "sensor.weather_forecast_5day_compact"
 
 esphome:
   name: ${device_name}
@@ -251,6 +260,30 @@ touchscreen:
       number: GPIO3
       ignore_strapping_warning: true
     reset_pin: GPIO38
+    # Swipe-Erkennung: Start-X beim Beruehren festhalten, last-X bei
+    # jeder Update-Position aktualisieren, beim Loslassen Delta
+    # auswerten und ggf. Page wechseln. Schwelle 50px, damit kleine
+    # Wackler keine Seitenwechsel ausloesen.
+    on_touch:
+      - lambda: |-
+          id(touch_start_x) = touch.x;
+          id(touch_last_x) = touch.x;
+    on_update:
+      - lambda: |-
+          if (!touches.empty()) {
+            id(touch_last_x) = touches[0].x;
+          }
+    on_release:
+      - if:
+          condition:
+            lambda: 'return (id(touch_last_x) - id(touch_start_x)) < -50;'
+          then:
+            - lvgl.page.next:
+      - if:
+          condition:
+            lambda: 'return (id(touch_last_x) - id(touch_start_x)) > 50;'
+          then:
+            - lvgl.page.previous:
 
 font:
   - file: "gfonts://Inter@500"
@@ -279,11 +312,21 @@ font:
       - "\U0000E818"  # foggy - Nebel
       - "\U0000E1FF"  # bolt - Gewitter
       - "\U0000E51C"  # nights_stay - klarer Nachthimmel
+      - "\U0000E1C6"  # wb_twilight - Sonnenuntergang
       - "\U0000E88E"  # info - Fallback
 
 globals:
   - id: last_touch_ms
     type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  # Touch-Tracking fuer Swipe-Detection zwischen den Pages.
+  - id: touch_start_x
+    type: int16_t
+    restore_value: no
+    initial_value: "0"
+  - id: touch_last_x
+    type: int16_t
     restore_value: no
     initial_value: "0"
 
@@ -374,6 +417,19 @@ sensor:
               snprintf(buf, sizeof(buf), "%.1f°C", id(ha_weather_temp).state);
               return buf;
 
+  # Wochenkilometer im Akkublock unter "Letzte Tour" anzeigen.
+  - platform: homeassistant
+    id: bike_week_distance
+    entity_id: ${entity_week_distance}
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lvgl_week_distance
+            text: !lambda |-
+              static char buf[32];
+              snprintf(buf, sizeof(buf), "Diese Woche: %.0f km", id(bike_week_distance).state);
+              return buf;
+
 binary_sensor:
   - platform: homeassistant
     id: bike_charging
@@ -393,6 +449,76 @@ text_sensor:
         - lvgl.label.update:
             id: lvgl_maint_next
             text: !lambda 'return id(bike_maint_next).state.c_str();'
+
+  # Sonnenuntergang als bereits formatierter HH:MM-Local-Time-String.
+  # HA-Template-Sensor noetig (siehe README).
+  - platform: homeassistant
+    id: ha_sunset
+    entity_id: ${entity_sunset}
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lvgl_sunset
+            text: !lambda |-
+              return std::string("SU ") + id(ha_sunset).state;
+
+  # 5-Tage-Forecast als compact-string. Wird bei jedem Update geparst
+  # und in die 15 Day-Widgets der Page 2 verteilt.
+  - platform: homeassistant
+    id: ha_forecast_5day
+    entity_id: ${entity_forecast_5day}
+    on_value:
+      then:
+        - lambda: |-
+            const std::string& s = id(ha_forecast_5day).state;
+            // 15 Tokens erwartet: cond|max|min x 5
+            std::vector<std::string> tok;
+            size_t start = 0;
+            for (size_t i = 0; i <= s.length(); ++i) {
+              if (i == s.length() || s[i] == '|') {
+                tok.push_back(s.substr(start, i - start));
+                start = i + 1;
+              }
+            }
+            if (tok.size() < 15) return;
+            // Condition-zu-Glyph Mapping (gleich wie page 1)
+            auto icon = [](const std::string& c) -> std::string {
+              if (c == "sunny")                                          return "\xEE\xA0\x9A";
+              if (c == "clear-night")                                    return "\xEE\x94\x9C";
+              if (c == "partlycloudy")                                   return "\xEF\x85\xB6";
+              if (c == "cloudy")                                         return "\xEE\x8A\xBD";
+              if (c == "rainy" || c == "pouring")                        return "\xEF\x99\xBF";
+              if (c == "snowy" || c == "snowy-rainy")                    return "\xEE\xA0\x8F";
+              if (c == "fog")                                            return "\xEE\xA0\x98";
+              if (c == "lightning" || c == "lightning-rainy" ||
+                  c == "exceptional")                                    return "\xEE\x87\xBF";
+              return std::string("\xEE\xA2\x8E");
+            };
+            // Tagesnamen: heute + N
+            static const char* WDAY_DE[7] = {"So","Mo","Di","Mi","Do","Fr","Sa"};
+            auto t = id(ha_time).now();
+            int base_wd = t.is_valid() ? t.day_of_week - 1 : 0;
+            // 5 Tagesreihen aktualisieren
+            lv_label_set_text(id(fc_day0_name), WDAY_DE[(base_wd + 0) % 7]);
+            lv_label_set_text(id(fc_day0_icon), icon(tok[0]).c_str());
+            lv_label_set_text(id(fc_day0_max),  (tok[1] + "°").c_str());
+            lv_label_set_text(id(fc_day0_min),  (tok[2] + "°").c_str());
+            lv_label_set_text(id(fc_day1_name), WDAY_DE[(base_wd + 1) % 7]);
+            lv_label_set_text(id(fc_day1_icon), icon(tok[3]).c_str());
+            lv_label_set_text(id(fc_day1_max),  (tok[4] + "°").c_str());
+            lv_label_set_text(id(fc_day1_min),  (tok[5] + "°").c_str());
+            lv_label_set_text(id(fc_day2_name), WDAY_DE[(base_wd + 2) % 7]);
+            lv_label_set_text(id(fc_day2_icon), icon(tok[6]).c_str());
+            lv_label_set_text(id(fc_day2_max),  (tok[7] + "°").c_str());
+            lv_label_set_text(id(fc_day2_min),  (tok[8] + "°").c_str());
+            lv_label_set_text(id(fc_day3_name), WDAY_DE[(base_wd + 3) % 7]);
+            lv_label_set_text(id(fc_day3_icon), icon(tok[9]).c_str());
+            lv_label_set_text(id(fc_day3_max),  (tok[10] + "°").c_str());
+            lv_label_set_text(id(fc_day3_min),  (tok[11] + "°").c_str());
+            lv_label_set_text(id(fc_day4_name), WDAY_DE[(base_wd + 4) % 7]);
+            lv_label_set_text(id(fc_day4_icon), icon(tok[12]).c_str());
+            lv_label_set_text(id(fc_day4_max),  (tok[13] + "°").c_str());
+            lv_label_set_text(id(fc_day4_min),  (tok[14] + "°").c_str());
 
   # Wetter-Condition (sunny / cloudy / rainy / ...) ist der State der
   # weather-Entity. Wird auf ein Material-Symbol gemappt.
@@ -489,22 +615,30 @@ lvgl:
                   text: "--:--"
               # Wetter-Icon + Temperatur, eingebettet im selben Container
               # direkt unter der Uhrzeit. Quelle: HA-weather-Entity, Ort
-              # automatisch aus HA-Home.
+              # automatisch aus HA-Home. Sonnenuntergang rechts daneben.
               - label:
                   id: lvgl_weather_icon
-                  x: 80
+                  x: 16
                   y: 76
                   text_color: 0x60A5FA
                   text_font: font_weather
                   text: ""
               - label:
                   id: lvgl_weather_temp
-                  x: 120
+                  x: 56
                   y: 80
-                  width: 120
+                  width: 90
                   text_color: 0xCCCCCC
                   text_font: font_big
                   text: "--°C"
+              - label:
+                  id: lvgl_sunset
+                  x: 154
+                  y: 82
+                  width: 110
+                  text_color: 0xFB923C
+                  text_font: font_med
+                  text: ""
 
         # ---------- Akku: Prozent gross, Bar, Sekundaer-Info ---------
         - obj:
@@ -551,7 +685,16 @@ lvgl:
               - label:
                   id: lvgl_secondary
                   x: 0
-                  y: 80
+                  y: 78
+                  width: 256
+                  text_align: CENTER
+                  text_color: 0xAAAAAA
+                  text_font: font_med
+                  text: ""
+              - label:
+                  id: lvgl_week_distance
+                  x: 0
+                  y: 98
                   width: 256
                   text_align: CENTER
                   text_color: 0xAAAAAA
@@ -631,6 +774,269 @@ lvgl:
                   text_color: 0x888888
                   text_font: font_med
                   text: "-- km gesamt"
+
+    # =======================================================================
+    # PAGE 2: 5-Tage-Wetter (Swipe nach links von der Hauptseite)
+    # Quelle: ein HA-Template-Sensor, der den weather.get_forecasts-Service
+    # einmal alle 30 Min ruft und als pipe-separierter String 15 Tokens
+    # zurueckliefert (siehe README).
+    # =======================================================================
+    - id: page_weather
+      bg_color: 0x000000
+      widgets:
+        # Header
+        - obj:
+            x: 0
+            y: 0
+            width: 272
+            height: 40
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 6
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  x: 0
+                  y: 4
+                  width: 272
+                  text_align: CENTER
+                  text_color: 0xFFB347
+                  text_font: font_big
+                  text: "5-Tage-Wetter"
+
+        # 5 Tagesreihen, je 88px hoch. Layout pro Reihe:
+        # [Tagesname links] [Icon zentriert] [Max/Min rechts]
+        - obj:
+            x: 0
+            y: 48
+            width: 272
+            height: 80
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 6
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  id: fc_day0_name
+                  x: 8
+                  y: 18
+                  width: 60
+                  text_color: 0xFFFFFF
+                  text_font: font_big
+                  text: "--"
+              - label:
+                  id: fc_day0_icon
+                  x: 90
+                  y: 18
+                  text_color: 0x60A5FA
+                  text_font: font_weather
+                  text: ""
+              - label:
+                  id: fc_day0_max
+                  x: 160
+                  y: 8
+                  width: 100
+                  text_align: RIGHT
+                  text_color: 0xF87171
+                  text_font: font_big
+                  text: "--°"
+              - label:
+                  id: fc_day0_min
+                  x: 160
+                  y: 42
+                  width: 100
+                  text_align: RIGHT
+                  text_color: 0x60A5FA
+                  text_font: font_med
+                  text: "--°"
+
+        - obj:
+            x: 0
+            y: 134
+            width: 272
+            height: 80
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 6
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  id: fc_day1_name
+                  x: 8
+                  y: 18
+                  width: 60
+                  text_color: 0xFFFFFF
+                  text_font: font_big
+                  text: "--"
+              - label:
+                  id: fc_day1_icon
+                  x: 90
+                  y: 18
+                  text_color: 0x60A5FA
+                  text_font: font_weather
+                  text: ""
+              - label:
+                  id: fc_day1_max
+                  x: 160
+                  y: 8
+                  width: 100
+                  text_align: RIGHT
+                  text_color: 0xF87171
+                  text_font: font_big
+                  text: "--°"
+              - label:
+                  id: fc_day1_min
+                  x: 160
+                  y: 42
+                  width: 100
+                  text_align: RIGHT
+                  text_color: 0x60A5FA
+                  text_font: font_med
+                  text: "--°"
+
+        - obj:
+            x: 0
+            y: 220
+            width: 272
+            height: 80
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 6
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  id: fc_day2_name
+                  x: 8
+                  y: 18
+                  width: 60
+                  text_color: 0xFFFFFF
+                  text_font: font_big
+                  text: "--"
+              - label:
+                  id: fc_day2_icon
+                  x: 90
+                  y: 18
+                  text_color: 0x60A5FA
+                  text_font: font_weather
+                  text: ""
+              - label:
+                  id: fc_day2_max
+                  x: 160
+                  y: 8
+                  width: 100
+                  text_align: RIGHT
+                  text_color: 0xF87171
+                  text_font: font_big
+                  text: "--°"
+              - label:
+                  id: fc_day2_min
+                  x: 160
+                  y: 42
+                  width: 100
+                  text_align: RIGHT
+                  text_color: 0x60A5FA
+                  text_font: font_med
+                  text: "--°"
+
+        - obj:
+            x: 0
+            y: 306
+            width: 272
+            height: 80
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 6
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  id: fc_day3_name
+                  x: 8
+                  y: 18
+                  width: 60
+                  text_color: 0xFFFFFF
+                  text_font: font_big
+                  text: "--"
+              - label:
+                  id: fc_day3_icon
+                  x: 90
+                  y: 18
+                  text_color: 0x60A5FA
+                  text_font: font_weather
+                  text: ""
+              - label:
+                  id: fc_day3_max
+                  x: 160
+                  y: 8
+                  width: 100
+                  text_align: RIGHT
+                  text_color: 0xF87171
+                  text_font: font_big
+                  text: "--°"
+              - label:
+                  id: fc_day3_min
+                  x: 160
+                  y: 42
+                  width: 100
+                  text_align: RIGHT
+                  text_color: 0x60A5FA
+                  text_font: font_med
+                  text: "--°"
+
+        - obj:
+            x: 0
+            y: 392
+            width: 272
+            height: 80
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 6
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  id: fc_day4_name
+                  x: 8
+                  y: 18
+                  width: 60
+                  text_color: 0xFFFFFF
+                  text_font: font_big
+                  text: "--"
+              - label:
+                  id: fc_day4_icon
+                  x: 90
+                  y: 18
+                  text_color: 0x60A5FA
+                  text_font: font_weather
+                  text: ""
+              - label:
+                  id: fc_day4_max
+                  x: 160
+                  y: 8
+                  width: 100
+                  text_align: RIGHT
+                  text_color: 0xF87171
+                  text_font: font_big
+                  text: "--°"
+              - label:
+                  id: fc_day4_min
+                  x: 160
+                  y: 42
+                  width: 100
+                  text_align: RIGHT
+                  text_color: 0x60A5FA
+                  text_font: font_med
+                  text: "--°"
 
 # ---------------------------------------------------------------------------
 # Periodische Updates fuer Datum/Uhrzeit

@@ -68,6 +68,88 @@ template:
           {{ state_attr('sensor.performance_cx_maintenance', 'next_label') | default('', true) }}
 ```
 
+## Beispiel-Template-Sensor: `sun_next_setting_local` (Sonnenuntergang)
+
+Format: HH:MM-String der Lokalzeit, wann heute die Sonne untergeht.
+
+```yaml
+template:
+  - sensor:
+      - name: "Sun Next Setting Local"
+        unique_id: sun_next_setting_local
+        state: >
+          {{ as_local(as_datetime(state_attr('sun.sun', 'next_setting'))).strftime('%H:%M') }}
+        availability: "{{ states('sun.sun') != 'unavailable' }}"
+```
+
+## Beispiel-Template-Sensor: `gartenhaus_ebike_week_distance`
+
+Summe der Tour-Distanzen der laufenden Woche (Montag bis heute).
+Setzt voraus, dass `ha-bosch-ebike` einen oder mehrere
+`tour_distance`-Sensoren mit `state_class: total_increasing` liefert.
+
+Variante A (einfach, falls die Integration einen `week_distance`-Wert
+mitliefert):
+
+```yaml
+template:
+  - sensor:
+      - name: "Gartenhaus eBike Week Distance"
+        unique_id: gartenhaus_ebike_week_distance
+        unit_of_measurement: "km"
+        state: "{{ state_attr('sensor.gartenhaus_ebike_stats', 'week_km') | float(0) }}"
+```
+
+Variante B (Utility-Meter ueber die HA-Statistics):
+
+```yaml
+utility_meter:
+  ebike_week_distance:
+    source: sensor.gartenhaus_ebike_odometer_live
+    cycle: weekly
+```
+
+## Beispiel-Template-Sensor: `weather_forecast_5day_compact`
+
+Compact-String mit 15 Tokens (5 Tage je condition, max-temp, min-temp,
+pipe-separiert). ESPHome parst diesen und verteilt auf die 5 Day-Widgets
+der zweiten Display-Page.
+
+Benoetigt HA 2024.4+ wegen des `weather.get_forecasts`-Service.
+
+```yaml
+template:
+  - trigger:
+      - platform: time_pattern
+        minutes: "/30"
+      - platform: homeassistant
+        event: start
+    action:
+      - service: weather.get_forecasts
+        target:
+          entity_id: weather.wetter
+        data:
+          type: daily
+        response_variable: forecast_resp
+    sensor:
+      - name: "Weather Forecast 5Day Compact"
+        unique_id: weather_forecast_5day_compact
+        state: >
+          {%- set parts = namespace(items=[]) -%}
+          {%- for d in forecast_resp.forecasts['weather.wetter'][:5] -%}
+            {%- set parts.items = parts.items
+                + [d.condition,
+                   (d.temperature | round(0)) | string,
+                   (d.templow | default(d.temperature) | round(0)) | string] -%}
+          {%- endfor -%}
+          {{ parts.items | join('|') }}
+```
+
+Beim ersten Start kann es bis zu 30 Min dauern, bis der Sensor erstmals
+befuellt ist. Wer es schneller will, fuegt einen `homeassistant.start`-
+Trigger und manuell einen `homeassistant.update_entity`-Service-Call
+hinzu.
+
 ## Flashen
 
 1. `secrets.yaml` im ESPHome-Ordner anlegen mit `wifi_ssid`, `wifi_password`,
