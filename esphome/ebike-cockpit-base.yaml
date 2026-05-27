@@ -27,6 +27,7 @@ substitutions:
   # Sonnenuntergang als HH:MM-Local-Time-String. HA-Template-Sensor
   # noetig (siehe README). Default-Name passend zum Template-Beispiel.
   entity_sunset: "sensor.sun_next_setting_local"
+  entity_sunrise: "sensor.sun_next_rising_local"
   # Wochenkilometer (laufende Woche). HA-Template-Sensor noetig.
   entity_week_distance: "sensor.gartenhaus_ebike_week_distance"
   # 5-Tage-Wetter als compact-string: cond1|max1|min1|cond2|max2|min2|...
@@ -450,8 +451,16 @@ text_sensor:
             id: lvgl_maint_next
             text: !lambda 'return id(bike_maint_next).state.c_str();'
 
-  # Sonnenuntergang als bereits formatierter HH:MM-Local-Time-String.
-  # HA-Template-Sensor noetig (siehe README).
+  # Sonnenaufgang + Sonnenuntergang als bereits formatierte HH:MM-Local-
+  # Time-Strings. Beide brauchen einen HA-Template-Sensor (siehe README).
+  - platform: homeassistant
+    id: ha_sunrise
+    entity_id: ${entity_sunrise}
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lvgl_sunrise
+            text: !lambda 'return std::string("\xE2\x86\x91 ") + id(ha_sunrise).state;'
   - platform: homeassistant
     id: ha_sunset
     entity_id: ${entity_sunset}
@@ -459,8 +468,7 @@ text_sensor:
       then:
         - lvgl.label.update:
             id: lvgl_sunset
-            text: !lambda |-
-              return std::string("SU ") + id(ha_sunset).state;
+            text: !lambda 'return std::string("\xE2\x86\x93 ") + id(ha_sunset).state;'
 
   # 5-Tage-Forecast als compact-string. Wird bei jedem Update geparst
   # und in die 15 Day-Widgets der Page 2 verteilt.
@@ -563,31 +571,12 @@ lvgl:
     - id: page_main
       bg_color: 0x000000
       widgets:
-        # ---------- Header: Bike-Name (klein, oben links) ---------------
+        # ---------- Top: Datum links + Uhrzeit rechts in ROT ------------
         - obj:
             x: 0
             y: 0
             width: 272
-            height: 28
-            bg_color: 0x000000
-            bg_opa: COVER
-            border_width: 0
-            pad_all: 4
-            widgets:
-              - label:
-                  id: lvgl_bike_name
-                  x: 8
-                  y: 2
-                  text_color: 0xFFB347
-                  text_font: font_med
-                  text: "${bike_name}"
-
-        # ---------- Datum + Uhrzeit + Wetter ------------------------
-        - obj:
-            x: 0
-            y: 28
-            width: 272
-            height: 110
+            height: 32
             bg_color: 0x000000
             bg_opa: COVER
             border_width: 0
@@ -597,45 +586,114 @@ lvgl:
             widgets:
               - label:
                   id: lvgl_date
-                  x: 0
-                  y: 6
-                  width: 272
-                  text_align: CENTER
-                  text_color: 0xCCCCCC
-                  text_font: font_med
+                  x: 8
+                  y: 2
+                  width: 130
+                  text_align: LEFT
+                  text_color: 0xFF0000
+                  text_font: font_big
                   text: "..."
               - label:
                   id: lvgl_time
+                  x: 134
+                  y: 2
+                  width: 130
+                  text_align: RIGHT
+                  text_color: 0xFF0000
+                  text_font: font_big
+                  text: "--:--"
+
+        # ---------- Duenne rote Linie ----------------------------------
+        - obj:
+            x: 0
+            y: 32
+            width: 272
+            height: 2
+            bg_color: 0xFF0000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 0
+
+        # ---------- Bike-Name zentriert --------------------------------
+        - obj:
+            x: 0
+            y: 38
+            width: 272
+            height: 26
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 2
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  id: lvgl_bike_name
                   x: 0
-                  y: 28
+                  y: 0
                   width: 272
                   text_align: CENTER
-                  text_color: 0xFFFFFF
-                  text_font: font_huge
-                  text: "--:--"
-              # Wetter-Icon + Temperatur, eingebettet im selben Container
-              # direkt unter der Uhrzeit. Quelle: HA-weather-Entity, Ort
-              # automatisch aus HA-Home. Sonnenuntergang rechts daneben.
+                  text_color: 0xFFB347
+                  text_font: font_med
+                  text: "${bike_name}"
+
+        # ---------- Wetter zentriert: Icon + Temperatur -----------------
+        - obj:
+            x: 0
+            y: 66
+            width: 272
+            height: 40
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 2
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
               - label:
                   id: lvgl_weather_icon
-                  x: 16
-                  y: 76
+                  x: 70
+                  y: 4
                   text_color: 0x60A5FA
                   text_font: font_weather
                   text: ""
               - label:
                   id: lvgl_weather_temp
-                  x: 56
-                  y: 80
-                  width: 90
+                  x: 110
+                  y: 6
+                  width: 100
                   text_color: 0xCCCCCC
                   text_font: font_big
                   text: "--°C"
+
+        # ---------- Sonnenaufgang + Sonnenuntergang --------------------
+        - obj:
+            x: 0
+            y: 110
+            width: 272
+            height: 30
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 2
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  id: lvgl_sunrise
+                  x: 36
+                  y: 4
+                  width: 100
+                  text_align: LEFT
+                  text_color: 0xFACC15
+                  text_font: font_med
+                  text: ""
               - label:
                   id: lvgl_sunset
-                  x: 154
-                  y: 82
-                  width: 110
+                  x: 144
+                  y: 4
+                  width: 100
+                  text_align: LEFT
                   text_color: 0xFB923C
                   text_font: font_med
                   text: ""
@@ -1051,14 +1109,12 @@ interval:
           text: !lambda |-
             auto t = id(ha_time).now();
             if (!t.is_valid()) return std::string("...");
-            static const char* days[7]   = {"So","Mo","Di","Mi","Do","Fr","Sa"};
-            static const char* months[12]= {"Jan","Feb","Maerz","Apr","Mai","Juni",
-                                            "Juli","Aug","Sep","Okt","Nov","Dez"};
+            static const char* days[7] = {"So","Mo","Di","Mi","Do","Fr","Sa"};
             auto ct = t.to_c_tm();
-            int wd = ct.tm_wday;     if (wd < 0 || wd > 6)  wd = 0;
-            int mo = ct.tm_mon;      if (mo < 0 || mo > 11) mo = 0;
-            char b[32];
-            snprintf(b, sizeof(b), "%s, %d. %s", days[wd], ct.tm_mday, months[mo]);
+            int wd = ct.tm_wday; if (wd < 0 || wd > 6) wd = 0;
+            char b[16];
+            // Kompaktformat fuer die linke Haelfte oben: "Mo 29.5."
+            snprintf(b, sizeof(b), "%s %d.%d.", days[wd], ct.tm_mday, ct.tm_mon + 1);
             return std::string(b);
       - lvgl.label.update:
           id: lvgl_time

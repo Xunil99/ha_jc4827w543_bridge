@@ -68,13 +68,20 @@ template:
           {{ state_attr('sensor.performance_cx_maintenance', 'next_label') | default('', true) }}
 ```
 
-## Beispiel-Template-Sensor: `sun_next_setting_local` (Sonnenuntergang)
+## Beispiel-Template-Sensoren: Sonnenaufgang + Sonnenuntergang
 
-Format: HH:MM-String der Lokalzeit, wann heute die Sonne untergeht.
+Beide Werte als HH:MM-String der Lokalzeit. Werden auf dem Display unter
+dem Bike-Namen als `↑ 05:42`  `↓ 20:32` nebeneinander gezeigt.
 
 ```yaml
 template:
   - sensor:
+      - name: "Sun Next Rising Local"
+        unique_id: sun_next_rising_local
+        state: >
+          {{ as_local(as_datetime(state_attr('sun.sun', 'next_rising'))).strftime('%H:%M') }}
+        availability: "{{ states('sun.sun') != 'unavailable' }}"
+
       - name: "Sun Next Setting Local"
         unique_id: sun_next_setting_local
         state: >
