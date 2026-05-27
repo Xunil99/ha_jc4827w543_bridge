@@ -29,6 +29,17 @@ Swipe-Navigation zwischen Seite 1 / 2 / 3. Seite 4 ist nicht in der
 Swipe-Sequenz, sondern nur per Tap aus Seite 3 zu erreichen und kehrt
 auf jeden weiteren Tap zurück zu Seite 3.
 
+### Mockups
+
+<p>
+  <img src="docs/mockups/page1-cockpit.svg"    alt="Seite 1: eBike-Cockpit"      width="180">
+  <img src="docs/mockups/page2-weather.svg"    alt="Seite 2: 5-Tage-Wetter"      width="180">
+  <img src="docs/mockups/page3-energy.svg"     alt="Seite 3: Hausenergie"        width="180">
+  <img src="docs/mockups/page4-mg4-detail.svg" alt="Seite 4: MG4-Detail"         width="180">
+</p>
+
+(Mockups, kein echter Display-Screenshot — Inhalte sind beispielhaft.)
+
 ## Hardware
 
 - Display: **Guition JC4827W543** (ESP32-S3-WROOM-1, 8 MB Octal-PSRAM,

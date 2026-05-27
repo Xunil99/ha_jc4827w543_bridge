@@ -26,8 +26,9 @@ substitutions:
   bike_name: "My eBike"
 
   # ---- Standort fuer Sonnenstand + Open-Meteo-Wetter ----
-  home_latitude: "48.7167"
-  home_longitude: "12.4333"
+  # Default: Berlin-Mitte. Auf eigene Koordinaten umstellen.
+  home_latitude: "52.520008"
+  home_longitude: "13.404954"
 
   # ---- Bosch eBike (Page 1) ----
   entity_battery_soc: "sensor.gartenhaus_ebike_battery_soc_live"

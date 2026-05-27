@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="272" height="480" viewBox="0 0 272 480" font-family="Inter, system-ui, sans-serif">
+  <rect width="272" height="480" fill="#000000"/>
+
+  <!-- Datum + Uhrzeit -->
+  <text x="8"   y="26" font-size="22" font-weight="700" fill="#FF0000">Mo 29.5.</text>
+  <text x="264" y="26" font-size="22" font-weight="700" fill="#FF0000" text-anchor="end">21:08</text>
+
+  <!-- Rote Linie -->
+  <rect x="0" y="32" width="272" height="2" fill="#FF0000"/>
+
+  <!-- Wetter: Icon + Temperatur -->
+  <g transform="translate(95,46)">
+    <circle cx="14" cy="14" r="8" fill="#FACC15"/>
+    <g stroke="#FACC15" stroke-width="2" stroke-linecap="round">
+      <line x1="14" y1="2"  x2="14" y2="-2"/>
+      <line x1="14" y1="26" x2="14" y2="30"/>
+      <line x1="2"  y1="14" x2="-2" y2="14"/>
+      <line x1="26" y1="14" x2="30" y2="14"/>
+      <line x1="5"  y1="5"  x2="2"  y2="2"/>
+      <line x1="23" y1="5"  x2="26" y2="2"/>
+      <line x1="5"  y1="23" x2="2"  y2="26"/>
+      <line x1="23" y1="23" x2="26" y2="26"/>
+    </g>
+  </g>
+  <text x="148" y="70" font-size="22" font-weight="600" fill="#CCCCCC">18.5°C</text>
+
+  <!-- Sonnenauf-/untergang -->
+  <text x="36"  y="104" font-size="15" fill="#FACC15">Auf 05:13</text>
+  <text x="144" y="104" font-size="15" fill="#FB923C">Ab 21:24</text>
+
+  <!-- Bike-Name -->
+  <text x="136" y="135" font-size="16" fill="#22C55E" text-anchor="middle">My eBike</text>
+
+  <!-- Akku -->
+  <text x="136" y="200" font-size="34" font-weight="700" fill="#22C55E" text-anchor="middle">67 %</text>
+  <text x="20"  y="200" font-size="14" fill="#FACC15" font-weight="700">+</text>
+  <rect x="32" y="232" width="208" height="14" rx="3" fill="#161616"/>
+  <rect x="32" y="232" width="139" height="14" rx="3" fill="#22C55E"/>
+  <text x="136" y="266" font-size="15" fill="#AAAAAA" text-anchor="middle">Letzte Tour: 23.4 km</text>
+  <text x="136" y="286" font-size="15" fill="#AAAAAA" text-anchor="middle">Diese Woche: 87 km</text>
+
+  <!-- Tage seit letzter Fahrt -->
+  <text x="136" y="313" font-size="15" fill="#FFFFFF" text-anchor="middle">Letzte Fahrt: vor 3 Tagen</text>
+
+  <!-- Wartung -->
+  <text x="136" y="354" font-size="20" font-weight="600" fill="#FB923C" text-anchor="middle">2 Wartungen fällig</text>
+  <text x="136" y="386" font-size="13" fill="#AAAAAA" text-anchor="middle">Bremsbeläge prüfen</text>
+
+  <!-- Kilometerstand -->
+  <text x="136" y="465" font-size="15" fill="#888888" text-anchor="middle">4 327 km gesamt</text>
+</svg>
