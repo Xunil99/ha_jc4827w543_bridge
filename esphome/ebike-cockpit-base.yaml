@@ -32,6 +32,7 @@ substitutions:
   entity_water_flow: "sensor.wasser_water_flow"
   entity_mg4_soc: "sensor.lsjwh4096pn212860_soc"
   entity_mg4_charge_power: "sensor.shelly_mg_steckdose_leistung"
+  entity_mg4_socket_temp: "sensor.shellyoutdoorsg3_e4b063f9cb2c_temperatur"
 
 esphome:
   name: ${device_name}
@@ -550,15 +551,14 @@ sensor:
     entity_id: ${entity_mg4_charge_power}
     on_value:
       then:
-        - lambda: |-
-            float p = id(mg4_charge_power).state;
-            char buf[24];
-            if (p > 10.0f) {
-              snprintf(buf, sizeof(buf), "lädt %.0f W", p);
-            } else {
-              buf[0] = '\0';
-            }
-            lv_label_set_text(id(lvgl_mg4_charge_power), buf);
+        - script.execute: update_mg4_charge_label
+
+  - platform: homeassistant
+    id: mg4_socket_temp
+    entity_id: ${entity_mg4_socket_temp}
+    on_value:
+      then:
+        - script.execute: update_mg4_charge_label
 
   - platform: homeassistant
     id: water_flow
@@ -632,6 +632,27 @@ http_request:
   timeout: 10s
 
 script:
+  # Aktualisiert das MG4-Lade-Label aus zwei HA-Sensoren (Steckdosen-
+  # Leistung + Steckdosen-Temperatur). Wird von beiden Sensor-on_value-
+  # Triggern aufgerufen, damit das Label aktuell bleibt wenn sich
+  # einer der beiden Werte aendert.
+  - id: update_mg4_charge_label
+    then:
+      - lambda: |-
+          float p = id(mg4_charge_power).state;
+          char buf[48];
+          if (p > 10.0f) {
+            float t = id(mg4_socket_temp).state;
+            if (!std::isnan(t)) {
+              snprintf(buf, sizeof(buf), "lädt %.0f W (%.1f°C)", p, t);
+            } else {
+              snprintf(buf, sizeof(buf), "lädt %.0f W", p);
+            }
+          } else {
+            buf[0] = '\0';
+          }
+          lv_label_set_text(id(lvgl_mg4_charge_power), buf);
+
   - id: fetch_weather
     then:
       - http_request.get:
