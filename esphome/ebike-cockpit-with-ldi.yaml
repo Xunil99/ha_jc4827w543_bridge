@@ -1,0 +1,78 @@
+# JC4827W543 eBike Cockpit (mit Bosch LDI-Bridge)
+#
+# Diese Variante baut auf der Base-YAML auf (alle UI- und HA-Daten gleich)
+# und integriert zusaetzlich die bosch_ebike_ldi External-Component aus
+# dem ha-bosch-ebike-Repo. Damit kann das Display Live-Akkudaten direkt
+# vom Bosch Smart System per BLE lesen, auch wenn HA gerade nicht
+# erreichbar ist.
+#
+# Vor dem Flashen:
+#  - Beide Bike-IDs (account_id, bike_id) eintragen
+#  - Pairing-Modus aktivieren beim ersten Flash, danach umstellen
+#  - secrets.yaml mit Bosch-Credentials, sofern noetig
+
+packages:
+  cockpit: !include ebike-cockpit-base.yaml
+
+# Externe Komponente aus dem Schwester-Repo. Wird beim ersten Build geklont.
+external_components:
+  - source:
+      type: git
+      url: https://github.com/Xunil99/ha-bosch-ebike
+      ref: main
+    components: [bosch_ebike_ldi]
+    refresh: 0s
+
+# LDI-Bridge: BLE-Client gegen das Bosch Smart System.
+# Achtung: bosch_ebike_ldi nutzt den NimBLE-Stack. Auf dem ESP32-S3 mit
+# 16 MB Flash und PSRAM laeuft das problemlos parallel zur LVGL-UI.
+bosch_ebike_ldi:
+  id: ldi
+  # Optional: User-spezifische Account/Bike-Zuordnung. Falls leer,
+  # paired das ESP beim ersten Boot automatisch.
+  # account_id: !secret bosch_account_id
+  # bike_id: !secret bosch_bike_id
+
+# LDI-Sensoren als ESPHome-Sensoren (zusaetzlich zu den HA-Sensoren der
+# Base-YAML). Bei LDI-Update bekommt LVGL einen direkten Push und das
+# Display zeigt frischere Werte, ohne den HA-Roundtrip abzuwarten.
+sensor:
+  - platform: bosch_ebike_ldi
+    bosch_ebike_ldi_id: ldi
+    type: battery_soc
+    id: ldi_battery
+    on_value:
+      then:
+        - lvgl.indicator.update:
+            id: lvgl_battery_bar
+            value: !lambda 'return id(ldi_battery).state;'
+        - lvgl.label.update:
+            id: lvgl_battery_pct
+            text: !lambda |-
+              static char buf[8];
+              snprintf(buf, sizeof(buf), "%.0f %%", id(ldi_battery).state);
+              return buf;
+
+  - platform: bosch_ebike_ldi
+    bosch_ebike_ldi_id: ldi
+    type: range_remaining
+    id: ldi_range
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lvgl_range_label
+            text: !lambda |-
+              static char buf[24];
+              snprintf(buf, sizeof(buf), "ca. %.0f km Reichweite", id(ldi_range).state);
+              return buf;
+
+binary_sensor:
+  - platform: bosch_ebike_ldi
+    bosch_ebike_ldi_id: ldi
+    type: charger_connected
+    id: ldi_charging
+    on_state:
+      then:
+        - lvgl.label.update:
+            id: lvgl_charge_icon
+            text: !lambda 'return id(ldi_charging).state ? "⚡" : "";'

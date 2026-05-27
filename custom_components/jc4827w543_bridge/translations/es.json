@@ -1,0 +1,16 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Anadir cockpit eBike JC4827W543",
+        "description": "{hint}",
+        "data": {
+          "device_name": "Nombre de host del dispositivo ESPHome"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Este dispositivo ya esta configurado."
+    }
+  }
+}

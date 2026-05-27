@@ -1,0 +1,16 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "JC4827W543 eBike-cockpit toevoegen",
+        "description": "{hint}",
+        "data": {
+          "device_name": "ESPHome-apparaat-hostnaam"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Dit apparaat is al geconfigureerd."
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "domain": "jc4827w543_bridge",
+  "name": "JC4827W543 eBike Cockpit",
+  "codeowners": ["@Xunil99"],
+  "config_flow": true,
+  "documentation": "https://github.com/Xunil99/ha_jc4827w543_bridge",
+  "iot_class": "local_push",
+  "requirements": [],
+  "version": "0.1.0"
+}

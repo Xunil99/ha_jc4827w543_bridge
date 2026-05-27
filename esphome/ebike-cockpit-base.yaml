@@ -1,0 +1,376 @@
+# JC4827W543 eBike Cockpit (Base-Variante, ohne LDI)
+#
+# Das Display zeigt sieben Kerninformationen zu einem Bosch eBike, die es
+# rein aus Home-Assistant-Sensoren bezieht. Wenn HA offline ist, frieren die
+# Werte ein. Fuer Online-Bezug ohne HA: siehe ebike-cockpit-with-ldi.yaml.
+#
+# Vor dem Flashen anpassen:
+#  - Substitution `bike` (Entity-Praefix in HA, z.B. "performance_cx")
+#  - Substitution `bike_name` (was im Header angezeigt wird)
+#  - secrets.yaml mit wifi_ssid + wifi_password
+#  - Optional: Helligkeit, Sleep-Zeiten
+
+substitutions:
+  device_name: "ebike-cockpit"
+  friendly_name: "eBike Cockpit"
+  bike: "performance_cx"
+  bike_name: "Performance CX"
+  # Helligkeit (0..100). Wird per Time-Schedule weiter gedimmt nachts.
+  brightness_day: "85"
+  brightness_night: "10"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  min_version: 2025.4.0
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: INFO
+  hardware_uart: USB_SERIAL_JTAG
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${device_name} Fallback"
+
+time:
+  - platform: homeassistant
+    id: ha_time
+    timezone: "Europe/Berlin"
+
+# ---------------------------------------------------------------------------
+# Datenanbindung: HA-Sensoren spiegeln, alle Entitaeten konfigurierbar.
+# ---------------------------------------------------------------------------
+sensor:
+  - platform: homeassistant
+    id: bike_battery
+    entity_id: sensor.${bike}_battery_soc
+    on_value:
+      then:
+        - lvgl.indicator.update:
+            id: lvgl_battery_bar
+            value: !lambda 'return id(bike_battery).state;'
+        - lvgl.label.update:
+            id: lvgl_battery_pct
+            text: !lambda |-
+              static char buf[8];
+              snprintf(buf, sizeof(buf), "%.0f %%", id(bike_battery).state);
+              return buf;
+
+  - platform: homeassistant
+    id: bike_range
+    entity_id: sensor.${bike}_range_remaining
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lvgl_range_label
+            text: !lambda |-
+              static char buf[24];
+              snprintf(buf, sizeof(buf), "ca. %.0f km Reichweite", id(bike_range).state);
+              return buf;
+
+  - platform: homeassistant
+    id: bike_odometer
+    entity_id: sensor.${bike}_odometer
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lvgl_odometer
+            text: !lambda |-
+              static char buf[24];
+              snprintf(buf, sizeof(buf), "%.0f km gesamt", id(bike_odometer).state);
+              return buf;
+
+  - platform: homeassistant
+    id: bike_days_since
+    # HA-Template-Sensor, siehe README. Liefert int "Tage seit letzter Fahrt".
+    entity_id: sensor.${bike}_days_since_last_tour
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lvgl_days_since
+            text: !lambda |-
+              static char buf[40];
+              const int d = (int)id(bike_days_since).state;
+              if (d <= 0)      snprintf(buf, sizeof(buf), "Heute schon gefahren");
+              else if (d == 1) snprintf(buf, sizeof(buf), "Letzte Fahrt: gestern");
+              else             snprintf(buf, sizeof(buf), "Letzte Fahrt: vor %d Tagen", d);
+              return buf;
+
+  - platform: homeassistant
+    id: bike_maint_count
+    entity_id: sensor.${bike}_due_maintenance_count
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lvgl_maint_count
+            text: !lambda |-
+              static char buf[40];
+              const int n = (int)id(bike_maint_count).state;
+              if (n <= 0)      snprintf(buf, sizeof(buf), "Keine Wartung faellig");
+              else if (n == 1) snprintf(buf, sizeof(buf), "1 Wartung faellig");
+              else             snprintf(buf, sizeof(buf), "%d Wartungen faellig", n);
+              return buf;
+
+binary_sensor:
+  - platform: homeassistant
+    id: bike_charging
+    entity_id: binary_sensor.${bike}_charger_connected
+    on_state:
+      then:
+        - lvgl.label.update:
+            id: lvgl_charge_icon
+            text: !lambda 'return id(bike_charging).state ? "⚡" : "";'
+
+text_sensor:
+  - platform: homeassistant
+    id: bike_maint_next
+    entity_id: sensor.${bike}_next_maintenance_label
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lvgl_maint_next
+            text: !lambda 'return id(bike_maint_next).state.c_str();'
+
+# Datum + Uhrzeit aus dem Zeit-Component aktualisieren wir periodisch.
+interval:
+  - interval: 1s
+    then:
+      - lvgl.label.update:
+          id: lvgl_time
+          text: !lambda |-
+            auto t = id(ha_time).now();
+            if (!t.is_valid()) return std::string("--:--");
+            char buf[8];
+            snprintf(buf, sizeof(buf), "%02d:%02d", t.hour, t.minute);
+            return std::string(buf);
+      - lvgl.label.update:
+          id: lvgl_date
+          text: !lambda |-
+            static const char* WDAY_DE[7] = {"So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
+            static const char* MON_DE[12] = {
+              "Jan", "Feb", "Mar", "Apr", "Mai", "Jun",
+              "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"
+            };
+            auto t = id(ha_time).now();
+            if (!t.is_valid()) return std::string("");
+            char buf[40];
+            snprintf(buf, sizeof(buf), "%s, %d. %s %d",
+              WDAY_DE[t.day_of_week - 1], t.day_of_month,
+              MON_DE[t.month - 1], t.year);
+            return std::string(buf);
+
+# Nachts dimmen (22:00 bis 06:30)
+  - interval: 60s
+    then:
+      - lambda: |-
+          auto t = id(ha_time).now();
+          if (!t.is_valid()) return;
+          bool night = (t.hour >= 22) || (t.hour < 6) || (t.hour == 6 && t.minute < 30);
+          auto target = night ? ${brightness_night} : ${brightness_day};
+          // Backlight wird per LEDC gesteuert (siehe output: weiter unten).
+          id(backlight).turn_on().set_level(target / 100.0f).perform();
+
+# ---------------------------------------------------------------------------
+# Display-Hardware JC4827W543 (NV3041A QSPI, 480x272). LVGL rotiert auf
+# 272x480 (Hochformat).
+# ---------------------------------------------------------------------------
+output:
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO1
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: "Backlight"
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+    default_transition_length: 0s
+
+spi:
+  - id: qspi_bus
+    type: quad
+    clk_pin: GPIO47
+    data_pins: [GPIO21, GPIO48, GPIO40, GPIO39]
+
+display:
+  - platform: qspi_dbi
+    id: lcd
+    model: CUSTOM
+    data_rate: 40MHz
+    cs_pin: GPIO45
+    reset_pin: GPIO4
+    dimensions:
+      width: 480
+      height: 272
+    rotation: 270
+    init_sequence:
+      # NV3041A Custom Init (vom Originalprojekt uebernommen)
+      - [0xFF, 0xA5]
+      - [0xE7, 0x10]
+      - [0x35, 0x00]
+      - [0x36, 0xC0]
+      - [0x3A, 0x01]   # 16-bit RGB565
+      - [0x40, 0x01]
+      - [0x44, 0x15]
+      - [0x45, 0x15]
+      - [0x7D, 0x03]
+      - [0xC1, 0xBB]
+      - [0xC2, 0x05]
+      - [0xC3, 0x10]
+      - [0xC6, 0x3E]
+      - [0xC7, 0x25]
+      - [0xC8, 0x11]
+      - [0x7A, 0x5F]   # invert_colors-Aequivalent
+      - delay 120ms
+      - [0x11]
+      - delay 120ms
+      - [0x29]
+
+touchscreen:
+  - platform: cst816
+    id: ts_main
+    address: 0x15
+    i2c_id: i2c_bus
+    interrupt_pin: GPIO3
+    reset_pin: GPIO38
+
+i2c:
+  - id: i2c_bus
+    sda: GPIO8
+    scl: GPIO4
+    scan: false
+
+# ---------------------------------------------------------------------------
+# LVGL UI
+# ---------------------------------------------------------------------------
+lvgl:
+  buffer_size: 25%
+  color_depth: 16
+  bg_color: 0x000000
+  text_font: montserrat_20
+  default_font: montserrat_20
+  align: top_mid
+
+  pages:
+    - id: page_main
+      bg_color: 0x000000
+      widgets:
+        # 1) Bike-Name (Header)
+        - label:
+            id: lvgl_bike_name
+            text: "${bike_name}"
+            text_color: 0xFFB347
+            text_font: montserrat_18
+            align: top_mid
+            y: 6
+
+        # 2) Datum
+        - label:
+            id: lvgl_date
+            text: "----"
+            text_color: 0xCCCCCC
+            text_font: montserrat_20
+            align: top_mid
+            y: 34
+
+        # 3) Uhrzeit (sehr gross)
+        - label:
+            id: lvgl_time
+            text: "--:--"
+            text_color: 0xFFFFFF
+            text_font: montserrat_48
+            align: top_mid
+            y: 72
+
+        # 4) Akkustand: Prozent gross + Ladesymbol
+        - label:
+            id: lvgl_battery_pct
+            text: "-- %"
+            text_color: 0x4ADE80
+            text_font: montserrat_40
+            align: top_mid
+            y: 180
+        - label:
+            id: lvgl_charge_icon
+            text: ""
+            text_color: 0xFACC15
+            text_font: montserrat_28
+            align: top_left
+            x: 24
+            y: 188
+        - bar:
+            id: lvgl_battery_bar
+            x: 32
+            y: 232
+            width: 208
+            height: 14
+            min_value: 0
+            max_value: 100
+            value: 0
+        - label:
+            id: lvgl_range_label
+            text: "ca. -- km Reichweite"
+            text_color: 0xAAAAAA
+            text_font: montserrat_18
+            align: top_mid
+            y: 252
+
+        # 5) Tage seit letzter Fahrt
+        - label:
+            id: lvgl_days_since
+            text: "--"
+            text_color: 0xFFFFFF
+            text_font: montserrat_20
+            align: top_mid
+            y: 286
+
+        # 6) Wartung
+        - label:
+            id: lvgl_maint_count
+            text: "--"
+            text_color: 0xFB923C
+            text_font: montserrat_22
+            align: top_mid
+            y: 322
+        - label:
+            id: lvgl_maint_next
+            text: ""
+            text_color: 0xAAAAAA
+            text_font: montserrat_16
+            align: top_mid
+            y: 354
+
+        # 7) Kilometerstand
+        - label:
+            id: lvgl_odometer
+            text: "-- km gesamt"
+            text_color: 0x888888
+            text_font: montserrat_18
+            align: bottom_mid
+            y: -10
