@@ -17,6 +17,13 @@ substitutions:
   entity_days_since: "sensor.gartenhaus_ebike_days_since_last_tour"
   entity_maint_count: "sensor.gartenhaus_ebike_due_maintenance_count"
   entity_maint_label: "sensor.gartenhaus_ebike_next_maintenance_label"
+  # Wetter: HA legt 'weather.home' automatisch an, sobald irgendeine
+  # Weather-Integration konfiguriert ist (Met.no, OpenWeatherMap, ...).
+  # Der Ort wird automatisch aus den HA-Home-Einstellungen genommen,
+  # der User braucht hier nichts manuell einzustellen. Falls die
+  # Entitaet bei Dir anders heisst (z.B. weather.forecast_home), hier
+  # umbiegen.
+  entity_weather: "weather.home"
 
 esphome:
   name: ${device_name}
@@ -27,7 +34,7 @@ esphome:
     then:
       - logger.log:
           level: WARN
-          format: "=== EBIKE COCKPIT BUILD MARKER v0.5 LOADED ==="
+          format: "=== EBIKE COCKPIT BUILD MARKER v0.6 LOADED ==="
       # Backlight direkt am PWM-Output auf 100% setzen. Bypassed
       # die Light-Komponente, die mit restore_mode-Quirks den
       # Wert aus dem NVS holt.
@@ -258,6 +265,21 @@ font:
   - file: "gfonts://Inter@700"
     id: font_huge
     size: 36
+  # Material Symbols Outlined fuer Wetter-Icons. Nur die wirklich
+  # genutzten Glyphen einbinden, damit das Binary klein bleibt.
+  - file: "gfonts://Material+Symbols+Outlined"
+    id: font_weather
+    size: 28
+    glyphs:
+      - "\U0000E81A"  # wb_sunny - klarer Tag
+      - "\U0000E2BD"  # cloud - bewoelkt
+      - "\U0000F176"  # partly_cloudy_day - leicht bewoelkt
+      - "\U0000F67F"  # rainy - Regen
+      - "\U0000E80F"  # ac_unit - Schnee
+      - "\U0000E818"  # foggy - Nebel
+      - "\U0000E1FF"  # bolt - Gewitter
+      - "\U0000E51C"  # nights_stay - klarer Nachthimmel
+      - "\U0000E88E"  # info - Fallback
 
 globals:
   - id: last_touch_ms
@@ -338,6 +360,20 @@ sensor:
               else             snprintf(buf, sizeof(buf), "%d Wartungen faellig", n);
               return buf;
 
+  # Wetter-Temperatur aus dem 'temperature'-Attribut der weather-Entity.
+  - platform: homeassistant
+    id: ha_weather_temp
+    entity_id: ${entity_weather}
+    attribute: temperature
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lvgl_weather_temp
+            text: !lambda |-
+              static char buf[12];
+              snprintf(buf, sizeof(buf), "%.1f°C", id(ha_weather_temp).state);
+              return buf;
+
 binary_sensor:
   - platform: homeassistant
     id: bike_charging
@@ -357,6 +393,29 @@ text_sensor:
         - lvgl.label.update:
             id: lvgl_maint_next
             text: !lambda 'return id(bike_maint_next).state.c_str();'
+
+  # Wetter-Condition (sunny / cloudy / rainy / ...) ist der State der
+  # weather-Entity. Wird auf ein Material-Symbol gemappt.
+  - platform: homeassistant
+    id: ha_weather_condition
+    entity_id: ${entity_weather}
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lvgl_weather_icon
+            text: !lambda |-
+              const std::string& c = id(ha_weather_condition).state;
+              if (c == "sunny")                    return std::string("\xEE\xA0\x9A");  // wb_sunny
+              if (c == "clear-night")              return std::string("\xEE\x94\x9C");  // nights_stay
+              if (c == "partlycloudy")             return std::string("\xEF\x85\xB6");  // partly_cloudy_day
+              if (c == "cloudy")                   return std::string("\xEE\x8A\xBD");  // cloud
+              if (c == "rainy" || c == "pouring")  return std::string("\xEF\x99\xBF");  // rainy
+              if (c == "snowy" || c == "snowy-rainy")
+                                                   return std::string("\xEE\xA0\x8F");  // ac_unit
+              if (c == "fog")                      return std::string("\xEE\xA0\x98");  // foggy
+              if (c == "lightning" || c == "lightning-rainy" || c == "exceptional")
+                                                   return std::string("\xEE\x87\xBF");  // bolt
+              return std::string("\xEE\xA2\x8E");  // info als Fallback
 
 # ---------------------------------------------------------------------------
 # LVGL UI - Layout aus dem Working-YAML uebernommen (obj-Container mit
@@ -379,7 +438,7 @@ lvgl:
       bg_color: 0x000000
       widgets:
         # ---------- Build-Marker (Diagnose) -----------------------------
-        # Wenn dieses Label "BUILD v0.5 directpwm" zeigt: neue Firmware laeuft.
+        # Wenn dieses Label "BUILD v0.6 weather" zeigt: neue Firmware laeuft.
         # Wenn es fehlt oder anders aussieht: Flash ist nicht angekommen.
         - obj:
             x: 0
@@ -398,7 +457,7 @@ lvgl:
                   text_align: CENTER
                   text_color: 0xFFFFFF
                   text_font: font_small
-                  text: "BUILD v0.5 directpwm"
+                  text: "BUILD v0.6 weather"
 
         # ---------- Header: Bike-Name (klein, oben links) ---------------
         - obj:
@@ -419,7 +478,7 @@ lvgl:
                   text_font: font_med
                   text: "${bike_name}"
 
-        # ---------- Datum + Uhrzeit ---------------------------------
+        # ---------- Datum + Uhrzeit + Wetter ------------------------
         - obj:
             x: 0
             y: 28
@@ -429,11 +488,13 @@ lvgl:
             bg_opa: COVER
             border_width: 0
             pad_all: 0
+            scrollbar_mode: "off"
+            scrollable: false
             widgets:
               - label:
                   id: lvgl_date
                   x: 0
-                  y: 8
+                  y: 6
                   width: 272
                   text_align: CENTER
                   text_color: 0xCCCCCC
@@ -442,12 +503,30 @@ lvgl:
               - label:
                   id: lvgl_time
                   x: 0
-                  y: 30
+                  y: 28
                   width: 272
                   text_align: CENTER
                   text_color: 0xFFFFFF
                   text_font: font_huge
                   text: "--:--"
+              # Wetter-Icon + Temperatur, eingebettet im selben Container
+              # direkt unter der Uhrzeit. Quelle: HA-weather-Entity, Ort
+              # automatisch aus HA-Home.
+              - label:
+                  id: lvgl_weather_icon
+                  x: 80
+                  y: 76
+                  text_color: 0x60A5FA
+                  text_font: font_weather
+                  text: ""
+              - label:
+                  id: lvgl_weather_temp
+                  x: 120
+                  y: 80
+                  width: 120
+                  text_color: 0xCCCCCC
+                  text_font: font_big
+                  text: "--°C"
 
         # ---------- Akku: Prozent gross, Bar, Sekundaer-Info ---------
         - obj:
@@ -461,6 +540,8 @@ lvgl:
             border_width: 1
             radius: 8
             pad_all: 8
+            scrollbar_mode: "off"
+            scrollable: false
             widgets:
               - label:
                   id: lvgl_battery_pct
@@ -530,6 +611,8 @@ lvgl:
             border_width: 1
             radius: 8
             pad_all: 8
+            scrollbar_mode: "off"
+            scrollable: false
             widgets:
               - label:
                   id: lvgl_maint_count
