@@ -71,7 +71,7 @@ sensor:
     entity_id: sensor.${bike}_battery_soc
     on_value:
       then:
-        - lvgl.indicator.update:
+        - lvgl.bar.update:
             id: lvgl_battery_bar
             value: !lambda 'return id(bike_battery).state;'
         - lvgl.label.update:

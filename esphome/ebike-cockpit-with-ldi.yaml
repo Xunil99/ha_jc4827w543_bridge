@@ -43,7 +43,7 @@ sensor:
     id: ldi_battery
     on_value:
       then:
-        - lvgl.indicator.update:
+        - lvgl.bar.update:
             id: lvgl_battery_bar
             value: !lambda 'return id(ldi_battery).state;'
         - lvgl.label.update:
