@@ -153,6 +153,10 @@ display:
       width: 480
       height: 272
     invert_colors: true
+    # NV3041A im JC4827W543 erwartet RGB-Kanal-Reihenfolge. mipi_spi
+    # default ist bgr - ohne diese Zeile werden R und B vertauscht und
+    # man sieht rot als blau, orange als hellblau usw.
+    color_order: rgb
     init_sequence:
       - [0xff, 0xa5]
       - [0x36, 0xc0]
