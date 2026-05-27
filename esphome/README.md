@@ -10,20 +10,23 @@ Zwei Varianten in diesem Ordner:
 ## Erwartete HA-Entitaeten
 
 Die Firmware spricht eine Handvoll Sensoren ueber konfigurierbare Namen
-an (Substitution `bike`, Default `performance_cx`):
+an. Defaults zeigen auf das `gartenhaus_ebike`-Setup, anpassen ueber
+die `substitutions:` am Anfang der YAML.
 
-| Funktion | Entitaet | Typ |
-|----------|----------|------|
-| Akku-SoC | `sensor.${bike}_battery_soc` | numeric (0..100) |
-| Ladestatus | `binary_sensor.${bike}_charger_connected` | on/off |
-| Reichweite | `sensor.${bike}_range_remaining` | numeric (km) |
-| Kilometerstand | `sensor.${bike}_odometer` | numeric (km, total) |
-| Tage seit letzter Fahrt | `sensor.${bike}_days_since_last_tour` | numeric (int) |
-| Wartungs-Anzahl | `sensor.${bike}_due_maintenance_count` | numeric (int) |
-| Wartungs-Label | `sensor.${bike}_next_maintenance_label` | text |
+| Funktion | Default-Entitaet | Typ |
+|----------|-----------------|------|
+| Akku-SoC | `sensor.gartenhaus_ebike_battery_soc_live` | numeric (0..100) |
+| Ladestatus | `binary_sensor.gartenhaus_ebike_charger_connected` | on/off |
+| Letzte-Tour-Distanz | `sensor.drive_unit_performance_line_cx_last_ride_distance` | numeric (km) |
+| Kilometerstand | `sensor.gartenhaus_ebike_odometer_live` | numeric (km, total) |
+| Tage seit letzter Fahrt | `sensor.gartenhaus_ebike_days_since_last_tour` | numeric (int) |
+| Wartungs-Anzahl | `sensor.gartenhaus_ebike_due_maintenance_count` | numeric (int) |
+| Wartungs-Label | `sensor.gartenhaus_ebike_next_maintenance_label` | text |
+| Wochenkilometer | `sensor.gartenhaus_ebike_week_distance` | numeric (km) |
 
-Die ersten vier liefert die `ha-bosch-ebike`-Integration ab Werk.
-Die letzten drei muessen ggf. als Template-Sensor angelegt werden.
+**Nicht** mehr als HA-Sensor noetig:
+- Wetter (aktuell + 5 Tage): kommt von Open-Meteo direkt am ESP
+- Sonnenauf-/untergang: ESPHome-`sun:`-Component aus Koordinaten
 
 ## Beispiel-Template-Sensor: `days_since_last_tour`
 
@@ -115,46 +118,25 @@ utility_meter:
     cycle: weekly
 ```
 
-## Beispiel-Template-Sensor: `weather_forecast_5day_compact`
+## Wetter (aktuelle Temperatur + 5-Tage-Forecast): kein HA-Setup noetig
 
-Compact-String mit 15 Tokens (5 Tage je condition, max-temp, min-temp,
-pipe-separiert). ESPHome parst diesen und verteilt auf die 5 Day-Widgets
-der zweiten Display-Page.
+Beides kommt direkt von **Open-Meteo** (open-meteo.com), einer freien
+Wetter-API ohne Account, ohne API-Key, mit grosszuegigen Fair-Use-
+Limits (10.000 Anfragen pro Tag pro IP).
 
-Benoetigt HA 2024.4+ wegen des `weather.get_forecasts`-Service.
+Das ESP zieht alle 15 Minuten **einen** HTTPS-Call mit den weiter oben
+gesetzten Koordinaten und befuellt damit:
 
-```yaml
-template:
-  - trigger:
-      - platform: time_pattern
-        minutes: "/30"
-      - platform: homeassistant
-        event: start
-    action:
-      - service: weather.get_forecasts
-        target:
-          entity_id: weather.wetter
-        data:
-          type: daily
-        response_variable: forecast_resp
-    sensor:
-      - name: "Weather Forecast 5Day Compact"
-        unique_id: weather_forecast_5day_compact
-        state: >
-          {%- set parts = namespace(items=[]) -%}
-          {%- for d in forecast_resp.forecasts['weather.wetter'][:5] -%}
-            {%- set parts.items = parts.items
-                + [d.condition,
-                   (d.temperature | round(0)) | string,
-                   (d.templow | default(d.temperature) | round(0)) | string] -%}
-          {%- endfor -%}
-          {{ parts.items | join('|') }}
-```
+- Wetter-Icon + aktuelle Temperatur auf Page 1
+- 5-Tage-Forecast (Tagesname, Icon, Max/Min) auf Page 2
 
-Beim ersten Start kann es bis zu 30 Min dauern, bis der Sensor erstmals
-befuellt ist. Wer es schneller will, fuegt einen `homeassistant.start`-
-Trigger und manuell einen `homeassistant.update_entity`-Service-Call
-hinzu.
+Beim Boot wird der erste Call kurz nach WLAN-Connect ausgeloest, danach
+laeuft das 15-Min-Interval.
+
+Falls Du Open-Meteo absichtlich nicht nutzen willst (z.B. weil keine
+Internet-Verbindung erlaubt), kannst Du den `http_request:`, `script:`
+und das 15-Min-Interval rauspatchen und stattdessen wieder eigene
+HA-Template-Sensoren anbinden.
 
 ## Flashen
 

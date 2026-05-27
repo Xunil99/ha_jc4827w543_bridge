@@ -17,24 +17,12 @@ substitutions:
   entity_days_since: "sensor.gartenhaus_ebike_days_since_last_tour"
   entity_maint_count: "sensor.gartenhaus_ebike_due_maintenance_count"
   entity_maint_label: "sensor.gartenhaus_ebike_next_maintenance_label"
-  # Wetter: HA legt 'weather.home' automatisch an, sobald irgendeine
-  # Weather-Integration konfiguriert ist (Met.no, OpenWeatherMap, ...).
-  # Der Ort wird automatisch aus den HA-Home-Einstellungen genommen,
-  # der User braucht hier nichts manuell einzustellen. Falls die
-  # Entitaet bei Dir anders heisst (z.B. weather.forecast_home), hier
-  # umbiegen.
-  entity_weather: "weather.wetter"
-  # Koordinaten fuer Sonnenauf- und -untergangsberechnung direkt im ESP
-  # (ESPHome sun: component). Aktuell Mengkofen, Niederbayern. Auf die
-  # eigene Heimat-Koordinaten umstellen, falls woanders.
+  # Koordinaten fuer Sonnenstand UND Open-Meteo-Wetter direkt am Display.
+  # Kein HA-Sensor mehr noetig fuer Wetter. Aktuell Mengkofen, Niederbayern.
   home_latitude: "48.7167"
   home_longitude: "12.4333"
   # Wochenkilometer (laufende Woche). HA-Template-Sensor noetig.
   entity_week_distance: "sensor.gartenhaus_ebike_week_distance"
-  # 5-Tage-Wetter als compact-string: cond1|max1|min1|cond2|max2|min2|...
-  # 15 Tokens (5 Tage x 3 Felder). HA-Template-Sensor mit
-  # weather.get_forecasts-Service-Call noetig.
-  entity_forecast_5day: "sensor.weather_forecast_5day_compact"
 
 esphome:
   name: ${device_name}
@@ -81,6 +69,11 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   fast_connect: true
+  on_connect:
+    # Sobald WLAN steht, einmal direkt Wetter holen, damit Page 1+2 nicht
+    # bis zum naechsten 15-Min-Tick leer aussehen.
+    - delay: 3s
+    - script.execute: fetch_weather
 
 improv_serial:
 
@@ -417,19 +410,9 @@ sensor:
               else             snprintf(buf, sizeof(buf), "%d Wartungen faellig", n);
               return buf;
 
-  # Wetter-Temperatur aus dem 'temperature'-Attribut der weather-Entity.
-  - platform: homeassistant
-    id: ha_weather_temp
-    entity_id: ${entity_weather}
-    attribute: temperature
-    on_value:
-      then:
-        - lvgl.label.update:
-            id: lvgl_weather_temp
-            text: !lambda |-
-              static char buf[12];
-              snprintf(buf, sizeof(buf), "%.1f°C", id(ha_weather_temp).state);
-              return buf;
+  # Wetter (aktuelle Temperatur + 5-Tage-Forecast) kommt jetzt direkt
+  # von Open-Meteo, siehe http_request- und interval-Block weiter unten.
+  # Kein HA-Sensor mehr noetig.
 
   # Wochenkilometer im Akkublock unter "Letzte Tour" anzeigen.
   - platform: homeassistant
@@ -490,86 +473,82 @@ text_sensor:
             id: lvgl_sunset
             text: !lambda 'return std::string("\xE2\x86\x93 ") + x;'
 
-  # 5-Tage-Forecast als compact-string. Wird bei jedem Update geparst
-  # und in die 15 Day-Widgets der Page 2 verteilt.
-  - platform: homeassistant
-    id: ha_forecast_5day
-    entity_id: ${entity_forecast_5day}
-    on_value:
-      then:
-        - lambda: |-
-            const std::string& s = id(ha_forecast_5day).state;
-            // 15 Tokens erwartet: cond|max|min x 5
-            std::vector<std::string> tok;
-            size_t start = 0;
-            for (size_t i = 0; i <= s.length(); ++i) {
-              if (i == s.length() || s[i] == '|') {
-                tok.push_back(s.substr(start, i - start));
-                start = i + 1;
-              }
-            }
-            if (tok.size() < 15) return;
-            // Condition-zu-Glyph Mapping (gleich wie page 1)
-            auto icon = [](const std::string& c) -> std::string {
-              if (c == "sunny")                                          return "\xEE\xA0\x9A";
-              if (c == "clear-night")                                    return "\xEE\x94\x9C";
-              if (c == "partlycloudy")                                   return "\xEF\x85\xB6";
-              if (c == "cloudy")                                         return "\xEE\x8A\xBD";
-              if (c == "rainy" || c == "pouring")                        return "\xEF\x99\xBF";
-              if (c == "snowy" || c == "snowy-rainy")                    return "\xEE\xA0\x8F";
-              if (c == "fog")                                            return "\xEE\xA0\x98";
-              if (c == "lightning" || c == "lightning-rainy" ||
-                  c == "exceptional")                                    return "\xEE\x87\xBF";
-              return std::string("\xEE\xA2\x8E");
-            };
-            // Tagesnamen: heute + N
-            static const char* WDAY_DE[7] = {"So","Mo","Di","Mi","Do","Fr","Sa"};
-            auto t = id(ha_time).now();
-            int base_wd = t.is_valid() ? t.day_of_week - 1 : 0;
-            // 5 Tagesreihen aktualisieren
-            lv_label_set_text(id(fc_day0_name), WDAY_DE[(base_wd + 0) % 7]);
-            lv_label_set_text(id(fc_day0_icon), icon(tok[0]).c_str());
-            lv_label_set_text(id(fc_day0_max),  (tok[1] + "°").c_str());
-            lv_label_set_text(id(fc_day0_min),  (tok[2] + "°").c_str());
-            lv_label_set_text(id(fc_day1_name), WDAY_DE[(base_wd + 1) % 7]);
-            lv_label_set_text(id(fc_day1_icon), icon(tok[3]).c_str());
-            lv_label_set_text(id(fc_day1_max),  (tok[4] + "°").c_str());
-            lv_label_set_text(id(fc_day1_min),  (tok[5] + "°").c_str());
-            lv_label_set_text(id(fc_day2_name), WDAY_DE[(base_wd + 2) % 7]);
-            lv_label_set_text(id(fc_day2_icon), icon(tok[6]).c_str());
-            lv_label_set_text(id(fc_day2_max),  (tok[7] + "°").c_str());
-            lv_label_set_text(id(fc_day2_min),  (tok[8] + "°").c_str());
-            lv_label_set_text(id(fc_day3_name), WDAY_DE[(base_wd + 3) % 7]);
-            lv_label_set_text(id(fc_day3_icon), icon(tok[9]).c_str());
-            lv_label_set_text(id(fc_day3_max),  (tok[10] + "°").c_str());
-            lv_label_set_text(id(fc_day3_min),  (tok[11] + "°").c_str());
-            lv_label_set_text(id(fc_day4_name), WDAY_DE[(base_wd + 4) % 7]);
-            lv_label_set_text(id(fc_day4_icon), icon(tok[12]).c_str());
-            lv_label_set_text(id(fc_day4_max),  (tok[13] + "°").c_str());
-            lv_label_set_text(id(fc_day4_min),  (tok[14] + "°").c_str());
+  # (Wetter wird via Open-Meteo-HTTP unten geholt, kein HA-Sensor.)
 
-  # Wetter-Condition (sunny / cloudy / rainy / ...) ist der State der
-  # weather-Entity. Wird auf ein Material-Symbol gemappt.
-  - platform: homeassistant
-    id: ha_weather_condition
-    entity_id: ${entity_weather}
-    on_value:
-      then:
-        - lvgl.label.update:
-            id: lvgl_weather_icon
-            text: !lambda |-
-              const std::string& c = id(ha_weather_condition).state;
-              if (c == "sunny")                    return std::string("\xEE\xA0\x9A");  // wb_sunny
-              if (c == "clear-night")              return std::string("\xEE\x94\x9C");  // nights_stay
-              if (c == "partlycloudy")             return std::string("\xEF\x85\xB6");  // partly_cloudy_day
-              if (c == "cloudy")                   return std::string("\xEE\x8A\xBD");  // cloud
-              if (c == "rainy" || c == "pouring")  return std::string("\xEF\x99\xBF");  // rainy
-              if (c == "snowy" || c == "snowy-rainy")
-                                                   return std::string("\xEE\xA0\x8F");  // ac_unit
-              if (c == "fog")                      return std::string("\xEE\xA0\x98");  // foggy
-              if (c == "lightning" || c == "lightning-rainy" || c == "exceptional")
-                                                   return std::string("\xEE\x87\xBF");  // bolt
-              return std::string("\xEE\xA2\x8E");  // info als Fallback
+# ---------------------------------------------------------------------------
+# Open-Meteo Wetter (aktuelle Temp + Condition + 5-Tage-Forecast)
+# Direkt aus Koordinaten, kein API-Key, keine HA-Sensoren noetig.
+# ---------------------------------------------------------------------------
+http_request:
+  id: http_client
+  useragent: "esphome-cockpit/1.0"
+  verify_ssl: false
+  timeout: 10s
+
+script:
+  - id: fetch_weather
+    then:
+      - http_request.get:
+          url: "https://api.open-meteo.com/v1/forecast?latitude=${home_latitude}&longitude=${home_longitude}&current=temperature_2m,weather_code,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min&forecast_days=5&timezone=auto"
+          capture_response: true
+          on_response:
+            then:
+              - lambda: |-
+                  if (response->status_code != 200) {
+                    ESP_LOGW("openmeteo", "HTTP %d", response->status_code);
+                    return;
+                  }
+                  // WMO Weather-Code zu Material-Symbol-Glyph
+                  auto code_to_icon = [](int c, bool day) -> std::string {
+                    if (c == 0 || c == 1)             return day ? std::string("\xEE\xA0\x9A") : std::string("\xEE\x94\x9C");
+                    if (c == 2)                       return std::string("\xEF\x85\xB6");
+                    if (c == 3)                       return std::string("\xEE\x8A\xBD");
+                    if (c == 45 || c == 48)           return std::string("\xEE\xA0\x98");
+                    if (c >= 51 && c <= 67)           return std::string("\xEF\x99\xBF");
+                    if (c >= 71 && c <= 77)           return std::string("\xEE\xA0\x8F");
+                    if (c >= 80 && c <= 82)           return std::string("\xEF\x99\xBF");
+                    if (c == 85 || c == 86)           return std::string("\xEE\xA0\x8F");
+                    if (c >= 95)                      return std::string("\xEE\x87\xBF");
+                    return std::string("\xEE\xA2\x8E");
+                  };
+                  ArduinoJson::JsonDocument doc;
+                  DeserializationError err = deserializeJson(doc, body);
+                  if (err) {
+                    ESP_LOGW("openmeteo", "JSON parse: %s", err.c_str());
+                    return;
+                  }
+                  // Aktuelle Werte (Page 1)
+                  float cur_temp = doc["current"]["temperature_2m"].as<float>();
+                  int   cur_code = doc["current"]["weather_code"].as<int>();
+                  bool  is_day   = doc["current"]["is_day"].as<int>() != 0;
+                  char tbuf[12];
+                  snprintf(tbuf, sizeof(tbuf), "%.1f°C", cur_temp);
+                  lv_label_set_text(id(lvgl_weather_temp), tbuf);
+                  lv_label_set_text(id(lvgl_weather_icon), code_to_icon(cur_code, is_day).c_str());
+                  // 5-Tage-Forecast (Page 2)
+                  static const char* WDAY_DE[7] = {"So","Mo","Di","Mi","Do","Fr","Sa"};
+                  auto now = id(ha_time).now();
+                  int base_wd = now.is_valid() ? now.day_of_week - 1 : 0;
+                  auto codes = doc["daily"]["weather_code"];
+                  auto maxes = doc["daily"]["temperature_2m_max"];
+                  auto mins  = doc["daily"]["temperature_2m_min"];
+                  lv_obj_t* name_labels[5] = {id(fc_day0_name), id(fc_day1_name), id(fc_day2_name), id(fc_day3_name), id(fc_day4_name)};
+                  lv_obj_t* icon_labels[5] = {id(fc_day0_icon), id(fc_day1_icon), id(fc_day2_icon), id(fc_day3_icon), id(fc_day4_icon)};
+                  lv_obj_t* max_labels[5]  = {id(fc_day0_max),  id(fc_day1_max),  id(fc_day2_max),  id(fc_day3_max),  id(fc_day4_max)};
+                  lv_obj_t* min_labels[5]  = {id(fc_day0_min),  id(fc_day1_min),  id(fc_day2_min),  id(fc_day3_min),  id(fc_day4_min)};
+                  for (int i = 0; i < 5; i++) {
+                    int   dc = codes[i].as<int>();
+                    float dmax = maxes[i].as<float>();
+                    float dmin = mins[i].as<float>();
+                    char mxbuf[8], mnbuf[8];
+                    snprintf(mxbuf, sizeof(mxbuf), "%.0f°", dmax);
+                    snprintf(mnbuf, sizeof(mnbuf), "%.0f°", dmin);
+                    lv_label_set_text(name_labels[i], WDAY_DE[(base_wd + i) % 7]);
+                    lv_label_set_text(icon_labels[i], code_to_icon(dc, true).c_str());
+                    lv_label_set_text(max_labels[i],  mxbuf);
+                    lv_label_set_text(min_labels[i],  mnbuf);
+                  }
+                  ESP_LOGI("openmeteo", "Weather updated: %.1f°C code=%d", cur_temp, cur_code);
 
 # ---------------------------------------------------------------------------
 # LVGL UI - Layout aus dem Working-YAML uebernommen (obj-Container mit
@@ -1122,6 +1101,12 @@ lvgl:
 # Helligkeit, damit der Bildschirminhalt eindeutig beurteilt werden kann.
 # ---------------------------------------------------------------------------
 interval:
+  # Wetter alle 15 Min nachladen. Open-Meteo Fair-Use: max 10k Calls/Tag/IP,
+  # bei 15 Min sind das 96/Tag, easy unter dem Limit.
+  - interval: 15min
+    then:
+      - script.execute: fetch_weather
+
   - interval: 1s
     then:
       - lvgl.label.update:
