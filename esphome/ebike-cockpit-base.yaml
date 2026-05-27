@@ -13,7 +13,7 @@
 substitutions:
   device_name: "ebike-cockpit"
   friendly_name: "eBike Cockpit"
-  bike: "performance_cx"
+  bike: "drive_unit_performance_line_cx"
   bike_name: "Performance CX"
   # Helligkeit (0..100). Wird per Time-Schedule weiter gedimmt nachts.
   brightness_day: "85"
