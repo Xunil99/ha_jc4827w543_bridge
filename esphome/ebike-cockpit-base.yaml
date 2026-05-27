@@ -25,7 +25,12 @@ esphome:
   on_boot:
     priority: -100
     then:
-      - logger.log: "eBike Cockpit booting, waiting for HA connection..."
+      - logger.log:
+          level: WARN
+          format: "=== EBIKE COCKPIT BUILD MARKER v0.2 LOADED ==="
+      - light.turn_on:
+          id: backlight
+          brightness: 100%
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -358,10 +363,32 @@ lvgl:
     - id: page_main
       bg_color: 0x000000
       widgets:
-        # ---------- Header: Bike-Name (klein, oben links) ---------------
+        # ---------- Build-Marker (Diagnose) -----------------------------
+        # Wenn dieses Label "BUILD v0.2" zeigt: neue Firmware laeuft.
+        # Wenn es fehlt oder anders aussieht: Flash ist nicht angekommen.
         - obj:
             x: 0
             y: 0
+            width: 272
+            height: 18
+            bg_color: 0xFF0000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 0
+            widgets:
+              - label:
+                  x: 0
+                  y: 0
+                  width: 272
+                  text_align: CENTER
+                  text_color: 0xFFFFFF
+                  text_font: font_small
+                  text: "BUILD v0.2"
+
+        # ---------- Header: Bike-Name (klein, oben links) ---------------
+        - obj:
+            x: 0
+            y: 18
             width: 272
             height: 28
             bg_color: 0x000000
@@ -530,22 +557,11 @@ lvgl:
                   text: "-- km gesamt"
 
 # ---------------------------------------------------------------------------
-# Periodische Updates fuer Datum/Uhrzeit + Backlight-Idle-Dimming
-# (uebernommen aus dem Working-YAML)
+# Periodische Updates fuer Datum/Uhrzeit
+# Backlight-Idle-Dimming temporaer DEAKTIVIERT - waehrend Diagnose volle
+# Helligkeit, damit der Bildschirminhalt eindeutig beurteilt werden kann.
 # ---------------------------------------------------------------------------
 interval:
-  - interval: 5s
-    then:
-      - lambda: |-
-          uint32_t idle_ms = millis() - id(last_touch_ms);
-          float target = 0.50f;
-          if (idle_ms > 5 * 60 * 1000) target = 0.05f;
-          else if (idle_ms > 60 * 1000) target = 0.30f;
-          auto call = id(backlight).turn_on();
-          call.set_brightness(target);
-          call.set_transition_length(500);
-          call.perform();
-
   - interval: 1s
     then:
       - lvgl.label.update:
