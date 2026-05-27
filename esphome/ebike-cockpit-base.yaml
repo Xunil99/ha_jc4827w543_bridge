@@ -25,11 +25,10 @@ substitutions:
   # umbiegen.
   entity_weather: "weather.wetter"
   # Koordinaten fuer Sonnenauf- und -untergangsberechnung direkt im ESP
-  # (ESPHome sun: component). Default ist Berlin-Mitte, einmal auf die
-  # Heimat-Koordinaten setzen, dann kommen die Zeiten ohne weiteren
-  # HA-Sensor automatisch raus.
-  home_latitude: "52.520008"
-  home_longitude: "13.404954"
+  # (ESPHome sun: component). Aktuell Mengkofen, Niederbayern. Auf die
+  # eigene Heimat-Koordinaten umstellen, falls woanders.
+  home_latitude: "48.7167"
+  home_longitude: "12.4333"
   # Wochenkilometer (laufende Woche). HA-Template-Sensor noetig.
   entity_week_distance: "sensor.gartenhaus_ebike_week_distance"
   # 5-Tage-Wetter als compact-string: cond1|max1|min1|cond2|max2|min2|...
