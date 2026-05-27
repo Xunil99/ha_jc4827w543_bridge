@@ -460,7 +460,7 @@ text_sensor:
       then:
         - lvgl.label.update:
             id: lvgl_sunrise
-            text: !lambda 'return std::string("\xE2\x86\x91 ") + x;'
+            text: !lambda 'return std::string("Auf ") + x;'
   - platform: sun
     sun_id: home_sun
     name: "Sun Next Setting"
@@ -471,7 +471,7 @@ text_sensor:
       then:
         - lvgl.label.update:
             id: lvgl_sunset
-            text: !lambda 'return std::string("\xE2\x86\x93 ") + x;'
+            text: !lambda 'return std::string("Ab ") + x;'
 
   # (Wetter wird via Open-Meteo-HTTP unten geholt, kein HA-Sensor.)
 
@@ -536,6 +536,9 @@ script:
                   lv_obj_t* icon_labels[5] = {id(fc_day0_icon), id(fc_day1_icon), id(fc_day2_icon), id(fc_day3_icon), id(fc_day4_icon)};
                   lv_obj_t* max_labels[5]  = {id(fc_day0_max),  id(fc_day1_max),  id(fc_day2_max),  id(fc_day3_max),  id(fc_day4_max)};
                   lv_obj_t* min_labels[5]  = {id(fc_day0_min),  id(fc_day1_min),  id(fc_day2_min),  id(fc_day3_min),  id(fc_day4_min)};
+                  // Temperatur-Farbgebung: ab 20 Grad gruen, darunter blau.
+                  lv_color_t col_warm = lv_color_hex(0x22C55E);
+                  lv_color_t col_cool = lv_color_hex(0x3B82F6);
                   for (int i = 0; i < 5; i++) {
                     int   dc = codes[i].as<int>();
                     float dmax = maxes[i].as<float>();
@@ -547,6 +550,10 @@ script:
                     lv_label_set_text(icon_labels[i], code_to_icon(dc, true).c_str());
                     lv_label_set_text(max_labels[i],  mxbuf);
                     lv_label_set_text(min_labels[i],  mnbuf);
+                    lv_obj_set_style_text_color(max_labels[i],
+                      dmax >= 20.0f ? col_warm : col_cool, LV_PART_MAIN);
+                    lv_obj_set_style_text_color(min_labels[i],
+                      dmin >= 20.0f ? col_warm : col_cool, LV_PART_MAIN);
                   }
                   ESP_LOGI("openmeteo", "Weather updated: %.1f°C code=%d", cur_temp, cur_code);
 
@@ -613,33 +620,10 @@ lvgl:
             border_width: 0
             pad_all: 0
 
-        # ---------- Bike-Name zentriert --------------------------------
-        - obj:
-            x: 0
-            y: 38
-            width: 272
-            height: 26
-            bg_color: 0x000000
-            bg_opa: COVER
-            border_width: 0
-            pad_all: 2
-            scrollbar_mode: "off"
-            scrollable: false
-            widgets:
-              - label:
-                  id: lvgl_bike_name
-                  x: 0
-                  y: 0
-                  width: 272
-                  text_align: CENTER
-                  text_color: 0xFFB347
-                  text_font: font_med
-                  text: "${bike_name}"
-
         # ---------- Wetter zentriert: Icon + Temperatur -----------------
         - obj:
             x: 0
-            y: 66
+            y: 38
             width: 272
             height: 40
             bg_color: 0x000000
@@ -668,7 +652,7 @@ lvgl:
         # ---------- Sonnenaufgang + Sonnenuntergang --------------------
         - obj:
             x: 0
-            y: 110
+            y: 80
             width: 272
             height: 30
             bg_color: 0x000000
@@ -680,9 +664,9 @@ lvgl:
             widgets:
               - label:
                   id: lvgl_sunrise
-                  x: 36
+                  x: 26
                   y: 4
-                  width: 100
+                  width: 110
                   text_align: LEFT
                   text_color: 0xFACC15
                   text_font: font_med
@@ -691,11 +675,34 @@ lvgl:
                   id: lvgl_sunset
                   x: 144
                   y: 4
-                  width: 100
+                  width: 110
                   text_align: LEFT
                   text_color: 0xFB923C
                   text_font: font_med
                   text: ""
+
+        # ---------- Bike-Name zentriert, unter Sonnenauf-/untergang ----
+        - obj:
+            x: 0
+            y: 114
+            width: 272
+            height: 28
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 2
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  id: lvgl_bike_name
+                  x: 0
+                  y: 0
+                  width: 272
+                  text_align: CENTER
+                  text_color: 0x22C55E
+                  text_font: font_med
+                  text: "${bike_name}"
 
         # ---------- Akku: Prozent gross, Bar, Sekundaer-Info ---------
         - obj:
@@ -716,7 +723,7 @@ lvgl:
                   y: 2
                   width: 256
                   text_align: CENTER
-                  text_color: 0x4ADE80
+                  text_color: 0x22C55E
                   text_font: font_huge
                   text: "-- %"
               - label:
@@ -737,7 +744,7 @@ lvgl:
                   value: 0
                   # Bar-Indikator gruen statt LVGL-Default (gelb/orange).
                   indicator:
-                    bg_color: 0x4ADE80
+                    bg_color: 0x22C55E
                     bg_opa: COVER
               - label:
                   id: lvgl_secondary
@@ -763,7 +770,7 @@ lvgl:
             x: 0
             y: 274
             width: 272
-            height: 36
+            height: 44
             bg_color: 0x000000
             bg_opa: COVER
             border_width: 0
@@ -772,7 +779,7 @@ lvgl:
               - label:
                   id: lvgl_days_since
                   x: 0
-                  y: 2
+                  y: 4
                   width: 264
                   text_align: CENTER
                   text_color: 0xFFFFFF
@@ -859,7 +866,7 @@ lvgl:
                   y: 4
                   width: 272
                   text_align: CENTER
-                  text_color: 0xFFB347
+                  text_color: 0x22C55E
                   text_font: font_big
                   text: "5-Tage-Wetter"
 
