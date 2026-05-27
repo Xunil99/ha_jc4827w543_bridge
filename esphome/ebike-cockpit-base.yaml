@@ -21,9 +21,9 @@
 #   - secrets.yaml mit wifi_ssid und wifi_password im selben Ordner
 
 substitutions:
-  device_name: "esphome-web-4e0964"
+  device_name: "jc4827w543-cockpit"
   friendly_name: "eBike Cockpit"
-  bike_name: "Cube Stereo Hybrid"
+  bike_name: "My eBike"
 
   # ---- Standort fuer Sonnenstand + Open-Meteo-Wetter ----
   home_latitude: "48.7167"
