@@ -30,6 +30,7 @@ substitutions:
   entity_home_battery_soc: "sensor.lilygo_rs485_marstek_battery_state_of_charge"
   entity_home_battery_power: "sensor.lilygo_rs485_marstek_ac_power"
   entity_water_flow: "sensor.wasser_water_flow"
+  entity_mg4_soc: "sensor.lsjwh4096pn212860_soc"
 
 esphome:
   name: ${device_name}
@@ -306,6 +307,10 @@ font:
   - file: "gfonts://Inter@500"
     id: font_med
     size: 18
+    # Default-Glyph-Set ist nur ASCII printable. Wir brauchen deutsche
+    # Umlaute fuer Wortlaute wie 'laedt' (ae->ä) und 'entnimmt'.
+    glyphs: |-
+      !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~ äöüÄÖÜß°
   - file: "gfonts://Inter@600"
     id: font_big
     size: 28
@@ -452,12 +457,15 @@ sensor:
     entity_id: ${entity_total_power}
     on_value:
       then:
-        - lvgl.label.update:
-            id: lvgl_total_power
-            text: !lambda |-
-              static char buf[16];
-              snprintf(buf, sizeof(buf), "%.0f W", id(total_power).state);
-              return buf;
+        - lambda: |-
+            float p = id(total_power).state;
+            char buf[16];
+            snprintf(buf, sizeof(buf), "%.0f W", p);
+            lv_label_set_text(id(lvgl_total_power), buf);
+            // < 50 W oder negativ (Einspeisung): gruen. >= 50 W: orange.
+            lv_color_t col = (p < 50.0f) ? lv_color_hex(0x22C55E) : lv_color_hex(0xFB923C);
+            lv_obj_set_style_text_color(id(lvgl_total_power), col, LV_PART_MAIN);
+            lv_obj_set_style_text_color(id(lvgl_total_power_label), col, LV_PART_MAIN);
 
   - platform: homeassistant
     id: home_battery_soc
@@ -484,12 +492,12 @@ sensor:
             char buf[32];
             lv_color_t col;
             if (p > 5.0f) {
-              // Positiv = Akku gibt Strom ab (entlaedt)
-              snprintf(buf, sizeof(buf), "Entlaedt %.0f W", p);
+              // Positiv = Akku gibt Strom ab
+              snprintf(buf, sizeof(buf), "entnimmt %.0f W", p);
               col = lv_color_hex(0x22C55E);
             } else if (p < -5.0f) {
               // Negativ = Akku wird geladen
-              snprintf(buf, sizeof(buf), "Laedt %.0f W", -p);
+              snprintf(buf, sizeof(buf), "lädt %.0f W", -p);
               col = lv_color_hex(0x3B82F6);
             } else {
               snprintf(buf, sizeof(buf), "Standby");
@@ -497,6 +505,21 @@ sensor:
             }
             lv_label_set_text(id(lvgl_home_battery_power), buf);
             lv_obj_set_style_text_color(id(lvgl_home_battery_power), col, LV_PART_MAIN);
+
+  - platform: homeassistant
+    id: mg4_soc
+    entity_id: ${entity_mg4_soc}
+    on_value:
+      then:
+        - lvgl.bar.update:
+            id: lvgl_mg4_bar
+            value: !lambda 'return id(mg4_soc).state;'
+        - lvgl.label.update:
+            id: lvgl_mg4_pct
+            text: !lambda |-
+              static char buf[8];
+              snprintf(buf, sizeof(buf), "%.0f %%", id(mg4_soc).state);
+              return buf;
 
   - platform: homeassistant
     id: water_flow
@@ -1317,6 +1340,7 @@ lvgl:
             scrollable: false
             widgets:
               - label:
+                  id: lvgl_total_power_label
                   x: 12
                   y: 6
                   width: 100
@@ -1383,6 +1407,48 @@ lvgl:
                   text_color: 0xAAAAAA
                   text_font: font_med
                   text: ""
+
+        # MG4 SoC mit Bar
+        - obj:
+            x: 0
+            y: 296
+            width: 272
+            height: 76
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 4
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  x: 12
+                  y: 6
+                  width: 100
+                  text_color: 0x06B6D4
+                  text_font: font_med
+                  text: "MG4"
+              - label:
+                  id: lvgl_mg4_pct
+                  x: 100
+                  y: 2
+                  width: 160
+                  text_align: RIGHT
+                  text_color: 0x06B6D4
+                  text_font: font_big
+                  text: "-- %"
+              - bar:
+                  id: lvgl_mg4_bar
+                  x: 16
+                  y: 44
+                  width: 240
+                  height: 14
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  indicator:
+                    bg_color: 0x06B6D4
+                    bg_opa: COVER
 
         # Wasser (Footer)
         - obj:
