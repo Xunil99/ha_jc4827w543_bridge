@@ -13,8 +13,21 @@
 substitutions:
   device_name: "esphome-web-4e0964"
   friendly_name: "eBike Cockpit"
-  bike: "drive_unit_performance_line_cx"
   bike_name: "Performance CX"
+
+  # Jede Entitaet einzeln konfigurierbar. Setze fehlende Sensoren auf
+  # eine nicht existierende Entitaet (z.B. "sensor.dummy"), dann bleibt
+  # der jeweilige Anzeige-Block leer auf "--".
+  entity_battery_soc: "sensor.gartenhaus_ebike_battery_soc_live"
+  entity_charger_connected: "binary_sensor.gartenhaus_ebike_charger_connected"
+  # Anstelle der nicht existenten Reichweite zeigen wir die letzte Tour.
+  # Alternativ: charge_power_live, battery_health, charging_state.
+  entity_secondary: "sensor.gartenhaus_ebike_last_tour_distance"
+  entity_odometer: "sensor.gartenhaus_ebike_odometer"
+  entity_days_since: "sensor.gartenhaus_ebike_days_since_last_tour"
+  entity_maint_count: "sensor.gartenhaus_ebike_due_maintenance_count"
+  entity_maint_label: "sensor.gartenhaus_ebike_next_maintenance_label"
+
   # Helligkeit (0..100). Wird per Time-Schedule weiter gedimmt nachts.
   brightness_day: "85"
   brightness_night: "10"
@@ -68,7 +81,7 @@ time:
 sensor:
   - platform: homeassistant
     id: bike_battery
-    entity_id: sensor.${bike}_battery_soc
+    entity_id: ${entity_battery_soc}
     on_value:
       then:
         - lvgl.bar.update:
@@ -81,21 +94,23 @@ sensor:
               snprintf(buf, sizeof(buf), "%.0f %%", id(bike_battery).state);
               return buf;
 
+  # Sekundaer-Info anstelle der nicht existenten Reichweite.
+  # Default: Letzte Tour Distanz. Bei Bedarf entity_secondary umbiegen.
   - platform: homeassistant
-    id: bike_range
-    entity_id: sensor.${bike}_range_remaining
+    id: bike_secondary
+    entity_id: ${entity_secondary}
     on_value:
       then:
         - lvgl.label.update:
             id: lvgl_range_label
             text: !lambda |-
-              static char buf[24];
-              snprintf(buf, sizeof(buf), "ca. %.0f km Reichweite", id(bike_range).state);
+              static char buf[32];
+              snprintf(buf, sizeof(buf), "Letzte Tour: %.1f km", id(bike_secondary).state);
               return buf;
 
   - platform: homeassistant
     id: bike_odometer
-    entity_id: sensor.${bike}_odometer
+    entity_id: ${entity_odometer}
     on_value:
       then:
         - lvgl.label.update:
@@ -108,7 +123,7 @@ sensor:
   - platform: homeassistant
     id: bike_days_since
     # HA-Template-Sensor, siehe README. Liefert int "Tage seit letzter Fahrt".
-    entity_id: sensor.${bike}_days_since_last_tour
+    entity_id: ${entity_days_since}
     on_value:
       then:
         - lvgl.label.update:
@@ -123,7 +138,7 @@ sensor:
 
   - platform: homeassistant
     id: bike_maint_count
-    entity_id: sensor.${bike}_due_maintenance_count
+    entity_id: ${entity_maint_count}
     on_value:
       then:
         - lvgl.label.update:
@@ -139,7 +154,7 @@ sensor:
 binary_sensor:
   - platform: homeassistant
     id: bike_charging
-    entity_id: binary_sensor.${bike}_charger_connected
+    entity_id: ${entity_charger_connected}
     on_state:
       then:
         - lvgl.label.update:
@@ -149,7 +164,7 @@ binary_sensor:
 text_sensor:
   - platform: homeassistant
     id: bike_maint_next
-    entity_id: sensor.${bike}_next_maintenance_label
+    entity_id: ${entity_maint_label}
     on_value:
       then:
         - lvgl.label.update:
@@ -285,6 +300,9 @@ lvgl:
   pages:
     - id: page_main
       bg_color: 0x000000
+      # bg_opa: COVER ueberblendet das LVGL-Default-Theme-Checkerboard,
+      # sonst scheint ein schwarz-weiss gestricheltes Muster durch.
+      bg_opa: COVER
       widgets:
         # 1) Bike-Name (Header)
         - label:
@@ -340,7 +358,7 @@ lvgl:
             value: 0
         - label:
             id: lvgl_range_label
-            text: "ca. -- km Reichweite"
+            text: ""
             text_color: 0xAAAAAA
             text_font: montserrat_18
             align: top_mid
@@ -349,7 +367,7 @@ lvgl:
         # 5) Tage seit letzter Fahrt
         - label:
             id: lvgl_days_since
-            text: "--"
+            text: ""
             text_color: 0xFFFFFF
             text_font: montserrat_20
             align: top_mid
@@ -358,7 +376,7 @@ lvgl:
         # 6) Wartung
         - label:
             id: lvgl_maint_count
-            text: "--"
+            text: ""
             text_color: 0xFB923C
             text_font: montserrat_22
             align: top_mid
