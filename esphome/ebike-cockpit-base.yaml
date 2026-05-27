@@ -1,15 +1,35 @@
 # JC4827W543 eBike Cockpit (Base-Variante, ohne LDI)
 #
-# Strikt abgeleitet vom verifizierten 6-Slot-Working-YAML.
-# Geaendert ggue. Original: pages: zeigen jetzt 7 statische Bosch-eBike
-# Datenpunkte statt 6 generischer Slots; api: services rausgenommen
-# (kein set_slot-RPC mehr noetig); HA-Sensor-Sources zugefuegt.
+# Mehrseitiges Touch-Display fuer Bosch eBike, Hausenergie und Wetter:
+#   Page 1  Bosch eBike Cockpit (Akku, Wartung, Letzte Tour, ...)
+#   Page 2  5-Tage-Wetterforecast (Open-Meteo, kein HA-Sensor noetig)
+#   Page 3  Hausenergie (PV, Verbrauch, Hausakku, MG4, Kalender)
+#   Page 4  MG4-Detail (per Tap auf MG4-Sektion in Page 3)
+#
+# Navigation:
+#   - Wischen links/rechts zwischen Page 1 / 2 / 3
+#   - Tap auf MG4-Sektion in Page 3 -> Page 4
+#   - Tap irgendwo auf Page 4 -> zurueck zu Page 3
+#
+# Vor dem Flashen anpassen:
+#   - home_latitude / home_longitude auf Heimatkoordinaten
+#   - bike_name fuer den Bike-Namen im Header (entfaellt, da Page 1
+#     ihn aktuell nicht mehr zeigt - Bike-Name ist nur Substitution)
+#   - Alle entity_*-Substitutionen unten auf die jeweiligen HA-Entitaeten
+#     im eigenen Setup; nicht vorhandene koennen auf 'sensor.dummy'
+#     gesetzt werden, betreffende Felder bleiben dann leer
+#   - secrets.yaml mit wifi_ssid und wifi_password im selben Ordner
 
 substitutions:
   device_name: "esphome-web-4e0964"
   friendly_name: "eBike Cockpit"
   bike_name: "Cube Stereo Hybrid"
 
+  # ---- Standort fuer Sonnenstand + Open-Meteo-Wetter ----
+  home_latitude: "48.7167"
+  home_longitude: "12.4333"
+
+  # ---- Bosch eBike (Page 1) ----
   entity_battery_soc: "sensor.gartenhaus_ebike_battery_soc_live"
   entity_charger_connected: "binary_sensor.gartenhaus_ebike_charger_connected"
   entity_secondary: "sensor.drive_unit_performance_line_cx_last_ride_distance"
@@ -17,21 +37,16 @@ substitutions:
   entity_days_since: "sensor.gartenhaus_ebike_days_since_last_tour"
   entity_maint_count: "sensor.gartenhaus_ebike_due_maintenance_count"
   entity_maint_label: "sensor.gartenhaus_ebike_next_maintenance_label"
-  # Koordinaten fuer Sonnenstand UND Open-Meteo-Wetter direkt am Display.
-  # Kein HA-Sensor mehr noetig fuer Wetter. Aktuell Mengkofen, Niederbayern.
-  home_latitude: "48.7167"
-  home_longitude: "12.4333"
-  # Wochenkilometer (laufende Woche). HA-Template-Sensor noetig.
   entity_week_distance: "sensor.gartenhaus_ebike_week_distance"
 
-  # Hausenergie-Sensoren fuer Page 3.
+  # ---- Hausenergie (Page 3) ----
   entity_solar_power: "sensor.shelly1pm_3494547656e7_leistung"
   entity_total_power: "sensor.gesamtstrom"
   entity_home_battery_soc: "sensor.lilygo_rs485_marstek_battery_state_of_charge"
   entity_home_battery_power: "sensor.lilygo_rs485_marstek_ac_power"
-  # Calendar fuer naechsten Muell-Termin o.ae.
-  # (statt entity_water_flow). Erwartet eine HA-calendar-Entity.
   entity_calendar: "calendar.awido_online"
+
+  # ---- MG4 (Page 3 + Page 4) ----
   entity_mg4_soc: "sensor.lsjwh4096pn212860_soc"
   entity_mg4_charge_power: "sensor.shelly_mg_steckdose_leistung"
   entity_mg4_socket_temp: "sensor.shellyoutdoorsg3_e4b063f9cb2c_temperatur"
@@ -51,9 +66,9 @@ esphome:
       - logger.log:
           level: INFO
           format: "eBike Cockpit booting, waiting for HA connection..."
-      # Backlight direkt am PWM-Output auf 100% setzen. Bypassed
-      # die Light-Komponente, die mit restore_mode-Quirks den
-      # Wert aus dem NVS holt.
+      # Initialer Backlight-Wert direkt am LEDC-Output (vor dem ersten
+      # sun.elevation-Update). Tag/Nacht-Umschaltung uebernimmt danach
+      # der sun.elevation-Sensor im sensor:-Block.
       - output.set_level:
           id: backlight_pwm
           level: 1.0
@@ -140,18 +155,9 @@ output:
     id: backlight_pwm
     frequency: 20000Hz
 
-# Light-Komponente waehrend der Display-Diagnose deaktiviert.
-# Wir steuern das Backlight direkt ueber output.set_level in on_boot,
-# ohne den Light-State-Layer dazwischen. So kann uns kein NVS-Restore
-# oder default_transition reinpfuschen. Wieder einbauen, sobald die
-# Diagnose abgeschlossen und das Display sauber ist.
-# light:
-#   - platform: monochromatic
-#     output: backlight_pwm
-#     id: backlight
-#     name: "Display Backlight"
-#     restore_mode: ALWAYS_ON
-#     default_transition_length: 250ms
+# Bewusst keine light:-Komponente. Backlight wird direkt am LEDC-Output
+# gesteuert: on_boot setzt 100%, der sun.elevation-Sensor schaltet
+# automatisch zwischen Tag (100%) und Nacht (20%).
 
 display:
   # WICHTIG: mipi_spi statt qspi_dbi. ESPHome 2026.5.x hat qspi_dbi
@@ -606,7 +612,6 @@ sensor:
       then:
         - script.execute: update_mg4_charge_end_label
 
-  # (water_flow durch calendar ersetzt - siehe text_sensor-Block unten)
 
 binary_sensor:
   - platform: homeassistant
@@ -1938,9 +1943,9 @@ lvgl:
                   text: "Tippen zum Zurueckkehren"
 
 # ---------------------------------------------------------------------------
-# Periodische Updates fuer Datum/Uhrzeit
-# Backlight-Idle-Dimming temporaer DEAKTIVIERT - waehrend Diagnose volle
-# Helligkeit, damit der Bildschirminhalt eindeutig beurteilt werden kann.
+# Periodische Updates: Wetter, Kalender, Datum/Uhrzeit
+# Backlight-Tag/Nacht-Dimming laeuft separat ueber den sun.elevation-
+# Sensor (siehe sensor:-Block).
 # ---------------------------------------------------------------------------
 interval:
   # Wetter alle 15 Min nachladen. Open-Meteo Fair-Use: max 10k Calls/Tag/IP,

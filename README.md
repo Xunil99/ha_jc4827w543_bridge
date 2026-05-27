@@ -1,77 +1,114 @@
 # JC4827W543 eBike Cockpit Bridge
 
-Standalone Home-Assistant-Integration plus ESPHome-Firmware für das
-**Guition JC4827W543** ESP32-S3 Display als Flur-/Garagen-Cockpit für ein
-Bosch Smart System eBike.
+Ein Touch-Display im Hochformat (272 × 480) für den Flur oder die
+Garage, das auf vier Seiten Bosch-eBike-Status, lokales Wetter,
+Hausenergie (PV, Hausakku, E-Auto, Mülltermin) und einen MG4-Detail-
+Bildschirm zusammenführt. Läuft auf dem **Guition JC4827W543**
+(ESP32-S3, NV3041A QSPI 480 × 272, GT911 Touch) mit ESPHome 2026.5+
+und LVGL.
 
-Das Display zeigt im Hochformat (272 × 480) sieben Kerninformationen
-zum Bike auf einen Blick:
+Die Anzeige bezieht ihre Daten aus Home Assistant per ESPHome-Native-
+API, ergänzt durch zwei Setup-freie Quellen direkt am ESP:
 
-1. Datum + Tagesname
-2. Uhrzeit
-3. Akkustand in Prozent (groß) mit Ladestatus-Icon
-4. Geschätzte Restreichweite in km
-5. Tage seit der letzten Fahrt
-6. Fällige Wartungen (Anzahl + dringlichste)
-7. Kilometerstand (Lifetime)
+- **Open-Meteo** für aktuelle Wetterlage und 5-Tage-Forecast (kein
+  API-Key, keine HA-Wetter-Entity nötig)
+- **ESPHome `sun:`-Component** für Sonnenauf-/-untergang und
+  automatisches Tag/Nacht-Backlight-Dimming aus den
+  Heimatkoordinaten
 
-Zwei Firmware-Varianten:
+## Seitenübersicht
 
-- **`ebike-cockpit-base.yaml`**: Das Display lebt rein vom HA-API.
-  HA bezieht die Daten aus der `ha-bosch-ebike`-Integration (oder einer
-  beliebigen anderen Quelle) und schiebt sie an das ESP.
-- **`ebike-cockpit-with-ldi.yaml`**: Zusätzlich integriert das ESP die
-  Bosch-LDI-Bridge direkt per BLE, sodass es Live-Daten auch ohne
-  laufenden HA-Server anzeigen kann.
+| Seite | Inhalt | Aufruf |
+|-------|--------|--------|
+| 1 | eBike-Cockpit: Datum, Uhrzeit, Wetter, Sonnenauf-/-untergang, Bike-Name, Akku %, Akku-Bar, Letzte Tour, Wochen-km, Tage seit letzter Fahrt, Wartungs-Stand, Kilometerstand | Standard |
+| 2 | 5-Tage-Wetter-Forecast (Tagesname, Icon, Max-/Min-Temperatur in farbcodiert nach Schwellen) | Wischen nach links |
+| 3 | Hausenergie: PV-Leistung, Verbrauch, Hausakku (SoC + Bar + Lade-/Entlade-Leistung), MG4 (SoC + Bar + Lade-/Fahrtstatus + Steckdosen-Temperatur), nächster Müllabfuhrtermin | Zweimal nach links wischen |
+| 4 | MG4-Detail: SoC groß, Kilometerstand, Restreichweite, Ladezeitende | Tap auf MG4-Sektion in Page 3 |
 
-## Status
+Swipe-Navigation zwischen Seite 1 / 2 / 3. Seite 4 ist nicht in der
+Swipe-Sequenz, sondern nur per Tap aus Seite 3 zu erreichen und kehrt
+auf jeden weiteren Tap zurück zu Seite 3.
 
-Privates Projekt, aktuell nicht öffentlich verteilt. Wird lokal entwickelt
-und getestet.
+## Hardware
+
+- Display: **Guition JC4827W543** (ESP32-S3-WROOM-1, 8 MB Octal-PSRAM,
+  16 MB Flash, 4,3 Zoll IPS QSPI mit NV3041A-Treiber, GT911-Touch)
+- Stromversorgung: USB-C, 5 V / 1 A reicht
+- Optional: 3D-gedrucktes Gehäuse
+
+## Aufbau
+
+```
+ha_jc4827w543_bridge/
+├── custom_components/jc4827w543_bridge/   # Home-Assistant-Integration
+│   ├── __init__.py
+│   ├── config_flow.py                     # Setup-Dialog (Device-Name)
+│   ├── manifest.json
+│   ├── const.py
+│   └── translations/                      # en, de, nl, fr, it, es
+└── esphome/
+    ├── ebike-cockpit-base.yaml            # Hauptfirmware
+    ├── ebike-cockpit-with-ldi.yaml        # Variante mit Bosch-LDI-Bridge
+    └── README.md                          # Pinout + Template-Sensoren
+```
 
 ## Schnellstart
 
 1. **HA-Integration installieren**: `custom_components/jc4827w543_bridge/`
    nach `<HA-Config>/custom_components/` kopieren, HA neu starten,
-   Integration über `Einstellungen → Geräte & Dienste → Integration
-   hinzufügen → JC4827W543` einrichten. Im Setup gibst Du den
-   ESPHome-Device-Namen ein (z.B. `ebike-cockpit`).
+   Integration über *Einstellungen → Geräte & Dienste → Integration
+   hinzufügen → JC4827W543* einrichten. ESPHome-Device-Name eintragen.
 
-2. **Display flashen**: Eine der beiden Varianten in `esphome/` öffnen,
-   die Substitutions (WiFi, Bike-Entitäts-Präfixe, Bike-Name) anpassen,
-   in ESPHome importieren und auf das JC4827W543 flashen.
+2. **ESPHome-Firmware anpassen**: In `esphome/ebike-cockpit-base.yaml`
+   die `substitutions:` am Anfang auf das eigene Setup anpassen:
+   - `home_latitude` / `home_longitude` (Heimatkoordinaten)
+   - `bike_name` (Anzeigename)
+   - Alle `entity_*`-Substitutionen auf die eigenen HA-Entitäten
+     umstellen. Sensoren, die nicht existieren, auf
+     `sensor.dummy` zeigen — die betroffenen Felder bleiben dann leer.
 
-3. **Eingangsdaten in HA bereitstellen**: Die Firmware erwartet eine
-   Handvoll Sensoren mit konfigurierbaren Namen. Standardwerte:
+3. **secrets.yaml** im `esphome/`-Ordner mit `wifi_ssid` und
+   `wifi_password`.
 
-   | Sensor | Default-Entität |
-   |--------|-----------------|
-   | Akkustand | `sensor.${bike}_battery_soc` |
-   | Ladezustand | `binary_sensor.${bike}_charger_connected` |
-   | Reichweite | `sensor.${bike}_range_remaining` |
-   | Kilometerstand | `sensor.${bike}_odometer` |
-   | Letztes Fahrt-Datum | `sensor.${bike}_last_tour_date` |
-   | Wartungs-Anzahl | `sensor.${bike}_due_maintenance_count` |
-   | Wartungs-Label | `sensor.${bike}_next_maintenance_label` |
+4. **Flashen**: YAML in die ESPHome-Dashboard-Konfiguration ziehen oder
+   via `esphome run` aufs Display schieben.
 
-   `${bike}` wird über eine Substitution in der YAML gesetzt
-   (z.B. `performance_cx`).
+## Datenquellen
 
-## Beziehung zu `ha-bosch-ebike`
+Pflicht (Bosch eBike):
+- Akku-SoC, Ladestatus, Kilometerstand, Wartungsinfo
 
-Diese Integration ist bewusst von `ha-bosch-ebike` entkoppelt: Du kannst
-sie auch verwenden, wenn Dein Bosch-Setup nicht über `ha-bosch-ebike`
-läuft (z.B. mit eigenen Template-Sensoren). Empfohlen ist trotzdem die
-Kombination, weil dort `last_tour_date`, `due_maintenance_count` und
-`next_maintenance_label` ohne Eigenbau bereitgestellt werden.
+Empfehlung (für die Hausenergie-Seite):
+- PV-Leistung (z. B. Shelly 1PM)
+- Hausverbrauch (Gesamtstrom-Sensor)
+- Hausakku (z. B. Marstek Venus per LiLyGO-RS485)
+- E-Auto-Telemetrie (z. B. MG4 über die `mg-saic`-Integration)
+- Müllabfuhr-Kalender (z. B. Awido)
 
-## Hardware
+Setup-frei (direkt am ESP):
+- Wetter + 5-Tage-Forecast: Open-Meteo
+- Sonnenauf-/-untergang: ESPHome sun:-Component aus Koordinaten
 
-- Display: **Guition JC4827W543** mit ESP32-S3 (16 MB Flash, PSRAM)
-  - 480 × 272 NV3041A QSPI (intern; LVGL rotiert auf 272 × 480 Hochformat)
-- Stromversorgung: USB-C, 5 V / 1 A reicht
-- Optional Gehäuse 3D-gedruckt
+Welche HA-Template-Sensoren ggf. anzulegen sind (Tage seit letzter
+Fahrt, Wochenkilometer), siehe `esphome/README.md`.
+
+## Bezug zu `ha-bosch-ebike`
+
+Die HA-Integration in diesem Repo ist eigenständig und nicht von
+`ha-bosch-ebike` abhängig. Empfohlen ist die Kombination, weil
+`ha-bosch-ebike` viele der erwarteten Sensoren bereits liefert.
+
+Die ESPHome-Variante `ebike-cockpit-with-ldi.yaml` integriert das
+External-Component `bosch_ebike_ldi` aus dem Schwester-Repo, womit
+das Display Live-Akkudaten direkt per BLE vom Bosch Smart System
+beziehen kann (auch ohne laufenden HA-Server).
 
 ## Lizenz
 
-MIT (siehe `LICENSE`).
+[MIT](LICENSE).
+
+## Mitwirken
+
+Dies ist primär ein persönliches Setup, das offen geteilt wird —
+Pull Requests und Issues sind willkommen, insbesondere für Bug-Reports,
+zusätzliche Übersetzungen oder Hardware-Varianten.
