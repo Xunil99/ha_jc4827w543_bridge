@@ -75,4 +75,4 @@ binary_sensor:
       then:
         - lvgl.label.update:
             id: lvgl_charge_icon
-            text: !lambda 'return id(ldi_charging).state ? "⚡" : "";'
+            text: !lambda 'return std::string(id(ldi_charging).state ? "⚡" : "");'

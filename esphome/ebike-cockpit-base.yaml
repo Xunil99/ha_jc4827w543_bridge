@@ -144,7 +144,7 @@ binary_sensor:
       then:
         - lvgl.label.update:
             id: lvgl_charge_icon
-            text: !lambda 'return id(bike_charging).state ? "⚡" : "";'
+            text: !lambda 'return std::string(id(bike_charging).state ? "⚡" : "");'
 
 text_sensor:
   - platform: homeassistant
@@ -193,7 +193,7 @@ interval:
           bool night = (t.hour >= 22) || (t.hour < 6) || (t.hour == 6 && t.minute < 30);
           auto target = night ? ${brightness_night} : ${brightness_day};
           // Backlight wird per LEDC gesteuert (siehe output: weiter unten).
-          id(backlight).turn_on().set_level(target / 100.0f).perform();
+          id(backlight).turn_on().set_brightness(target / 100.0f).perform();
 
 # ---------------------------------------------------------------------------
 # Display-Hardware JC4827W543 (NV3041A QSPI, 480x272). LVGL rotiert auf
