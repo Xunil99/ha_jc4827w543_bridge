@@ -371,7 +371,7 @@ lvgl:
       bg_color: 0x000000
       widgets:
         # ---------- Build-Marker (Diagnose) -----------------------------
-        # Wenn dieses Label "BUILD v0.3 mipi_spi" zeigt: neue Firmware laeuft.
+        # Wenn dieses Label "BUILD v0.4 forcebl" zeigt: neue Firmware laeuft.
         # Wenn es fehlt oder anders aussieht: Flash ist nicht angekommen.
         - obj:
             x: 0
@@ -390,7 +390,7 @@ lvgl:
                   text_align: CENTER
                   text_color: 0xFFFFFF
                   text_font: font_small
-                  text: "BUILD v0.3 mipi_spi"
+                  text: "BUILD v0.4 forcebl"
 
         # ---------- Header: Bike-Name (klein, oben links) ---------------
         - obj:
@@ -569,6 +569,19 @@ lvgl:
 # Helligkeit, damit der Bildschirminhalt eindeutig beurteilt werden kann.
 # ---------------------------------------------------------------------------
 interval:
+  # Backlight permanent auf 100% zwingen. Light-Komponente mit
+  # restore_mode: ALWAYS_ON holt sich sonst einen gespeicherten
+  # Dim-Wert (z.B. die alten 5% vom frueheren Idle-Dimming) aus dem
+  # NVS und das on_boot-light.turn_on kommt offenbar nicht durch.
+  # Diese Brute-Force-Loesung gilt nur waehrend der Display-Diagnose;
+  # wieder zurueck auf normales Dimming, sobald das Display sauber ist.
+  - interval: 1s
+    then:
+      - light.turn_on:
+          id: backlight
+          brightness: 100%
+          transition_length: 0s
+
   - interval: 1s
     then:
       - lvgl.label.update:
