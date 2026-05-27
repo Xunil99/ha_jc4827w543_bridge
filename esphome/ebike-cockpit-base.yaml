@@ -681,6 +681,7 @@ script:
 
   # Naechster Kalender-Termin: 'message' und 'start_time' aus HA holen,
   # ISO-Datum parsen, deutsche Wochentags-/Monatsbezeichnung bauen.
+  # Sonderfall: heute -> 'heute: dd.mm.', morgen -> 'morgen: dd.mm.'.
   - id: update_calendar_label
     then:
       - lambda: |-
@@ -698,13 +699,25 @@ script:
             lv_label_set_text(id(lvgl_calendar_title), msg.c_str());
             return;
           }
-          // Wochentag via mktime ermitteln
-          struct tm tm = {};
-          tm.tm_year = y - 1900;
-          tm.tm_mon  = mo - 1;
-          tm.tm_mday = d;
-          tm.tm_hour = 12;  // Mittag, vermeidet DST-Edge-Cases
-          mktime(&tm);
+          // Tagesdifferenz zwischen Event und heute berechnen, via mktime
+          struct tm event_tm = {};
+          event_tm.tm_year = y - 1900;
+          event_tm.tm_mon  = mo - 1;
+          event_tm.tm_mday = d;
+          event_tm.tm_hour = 12;
+          time_t event_ts = mktime(&event_tm);
+          int wd_evt = event_tm.tm_wday; if (wd_evt < 0 || wd_evt > 6) wd_evt = 0;
+          int days_diff = 9999;
+          auto now = id(ha_time).now();
+          if (now.is_valid()) {
+            struct tm today_tm = {};
+            today_tm.tm_year = now.year - 1900;
+            today_tm.tm_mon  = now.month - 1;
+            today_tm.tm_mday = now.day_of_month;
+            today_tm.tm_hour = 12;
+            time_t today_ts = mktime(&today_tm);
+            days_diff = (int)((event_ts - today_ts) / 86400);
+          }
           static const char* WDAY_LONG[7] = {
             "Sonntag","Montag","Dienstag","Mittwoch",
             "Donnerstag","Freitag","Samstag"
@@ -713,10 +726,15 @@ script:
             "Januar","Februar","März","April","Mai","Juni",
             "Juli","August","September","Oktober","November","Dezember"
           };
-          int wd = tm.tm_wday; if (wd < 0 || wd > 6) wd = 0;
-          int mi = mo - 1;     if (mi < 0 || mi > 11) mi = 0;
+          int mi = mo - 1; if (mi < 0 || mi > 11) mi = 0;
           char dbuf[64];
-          snprintf(dbuf, sizeof(dbuf), "%s, %d. %s", WDAY_LONG[wd], d, MONTH_LONG[mi]);
+          if (days_diff == 0) {
+            snprintf(dbuf, sizeof(dbuf), "heute: %02d.%02d.", d, mo);
+          } else if (days_diff == 1) {
+            snprintf(dbuf, sizeof(dbuf), "morgen: %02d.%02d.", d, mo);
+          } else {
+            snprintf(dbuf, sizeof(dbuf), "%s, %d. %s", WDAY_LONG[wd_evt], d, MONTH_LONG[mi]);
+          }
           lv_label_set_text(id(lvgl_calendar_date), dbuf);
           lv_label_set_text(id(lvgl_calendar_title), msg.c_str());
 
@@ -1631,6 +1649,14 @@ interval:
   - interval: 15min
     then:
       - script.execute: fetch_weather
+
+  # Stuendlich das Kalender-Label neu auswerten, damit der Wechsel
+  # von 'morgen' zu 'heute' an Mitternacht zuverlaessig passiert
+  # (die Sensoren cal_message + cal_start aendern sich von alleine
+  # nicht zwingend).
+  - interval: 1h
+    then:
+      - script.execute: update_calendar_label
 
   - interval: 1s
     then:
