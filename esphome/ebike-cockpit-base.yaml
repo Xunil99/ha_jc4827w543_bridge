@@ -218,6 +218,7 @@ output:
   - platform: ledc
     id: backlight_pwm
     pin: GPIO1
+    frequency: 20000Hz
 
 light:
   - platform: monochromatic
@@ -236,65 +237,136 @@ spi:
 display:
   - platform: qspi_dbi
     id: lcd
+    spi_id: qspi_bus
     model: CUSTOM
-    # Die offizielle ESPHome-Geraete-Referenz nutzt 20 MHz, das gibt
-    # zuverlaessigeres Update-Verhalten als 40 MHz.
     data_rate: 20MHz
-    # auto_clear_enabled + update_interval=never: ESPHome darf den
-    # Display-Buffer nicht zwischen LVGL-Frames "loeschen". Sonst
-    # entstehen flackernde Streifenmuster, weil LVGL und ESPHome
-    # sich gegenseitig ueberschreiben.
+    # ESPHome darf den Display-Buffer nicht zwischen LVGL-Frames
+    # "loeschen", sonst flackert es. LVGL uebernimmt das.
     auto_clear_enabled: false
     update_interval: never
-    # KEIN invert_colors: true hier! Die init_sequence weiter unten
-    # enthaelt bereits 0x7A,0x5F, also das Invert-Display-Kommando
-    # des NV3041A. Beides gleichzeitig = doppelte Invertierung =
-    # weisser Hintergrund.
+    invert_colors: true
     cs_pin:
       number: GPIO45
       ignore_strapping_warning: true
-    # Kein Hardware-Reset-Pin: das JC4827W543 hat keinen separat
-    # gefuehrten Reset auf den ESP32 verdrahtet. Reset passiert per
-    # Software ueber die init_sequence unten.
     dimensions:
       width: 480
       height: 272
+    # VOLLSTAENDIGE NV3041A-Init-Sequenz aus der offiziellen
+    # ESPHome-Geraete-Referenz:
+    # https://devices.esphome.io/devices/guition-jc4827543c/
+    # Die kurze 19-Register-Variante hatte Gamma- und Timing-Drift,
+    # was sich als Streifen, Flackern und unscharfer Schrift gezeigt
+    # hat. Diese 90+-Register-Variante setzt alle Voltage-, Gamma-
+    # und Timing-Register sauber.
     init_sequence:
-      # NV3041A Custom Init (vom Originalprojekt uebernommen)
-      - [0xFF, 0xA5]
-      - [0xE7, 0x10]
-      - [0x35, 0x00]
-      - [0x36, 0xC0]
-      - [0x3A, 0x01]   # 16-bit RGB565
-      - [0x40, 0x01]
+      - [0xff, 0xa5]
+      - [0x36, 0xc0]
+      - [0x3A, 0x01]
+      - [0x41, 0x03]
       - [0x44, 0x15]
       - [0x45, 0x15]
-      - [0x7D, 0x03]
-      - [0xC1, 0xBB]
-      - [0xC2, 0x05]
-      - [0xC3, 0x10]
-      - [0xC6, 0x3E]
-      - [0xC7, 0x25]
-      - [0xC8, 0x11]
-      - [0x7A, 0x5F]   # invert_colors-Aequivalent
-      - delay 120ms
-      - [0x11]
-      - delay 120ms
-      - [0x29]
+      - [0x7d, 0x03]
+      - [0xc1, 0xbb]
+      - [0xc2, 0x05]
+      - [0xc3, 0x10]
+      - [0xc6, 0x3e]
+      - [0xc7, 0x25]
+      - [0xc8, 0x11]
+      - [0x7a, 0x5f]
+      - [0x6f, 0x44]
+      - [0x78, 0x70]
+      - [0xc9, 0x00]
+      - [0x67, 0x21]
+      - [0x51, 0x0a]
+      - [0x52, 0x76]
+      - [0x53, 0x0a]
+      - [0x54, 0x76]
+      - [0x46, 0x0a]
+      - [0x47, 0x2a]
+      - [0x48, 0x0a]
+      - [0x49, 0x1a]
+      - [0x56, 0x43]
+      - [0x57, 0x42]
+      - [0x58, 0x3c]
+      - [0x59, 0x64]
+      - [0x5a, 0x41]
+      - [0x5b, 0x3c]
+      - [0x5c, 0x02]
+      - [0x5d, 0x3c]
+      - [0x5e, 0x1f]
+      - [0x60, 0x80]
+      - [0x61, 0x3f]
+      - [0x62, 0x21]
+      - [0x63, 0x07]
+      - [0x64, 0xe0]
+      - [0x65, 0x02]
+      - [0xca, 0x20]
+      - [0xcb, 0x52]
+      - [0xcc, 0x10]
+      - [0xcd, 0x42]
+      - [0xd0, 0x20]
+      - [0xd1, 0x52]
+      - [0xd2, 0x10]
+      - [0xd3, 0x42]
+      - [0xd4, 0x0a]
+      - [0xd5, 0x32]
+      - [0x80, 0x00]
+      - [0xa0, 0x00]
+      - [0x81, 0x07]
+      - [0xa1, 0x06]
+      - [0x82, 0x02]
+      - [0xa2, 0x01]
+      - [0x86, 0x11]
+      - [0xa6, 0x10]
+      - [0x87, 0x27]
+      - [0xa7, 0x27]
+      - [0x83, 0x37]
+      - [0xa3, 0x37]
+      - [0x84, 0x35]
+      - [0xa4, 0x35]
+      - [0x85, 0x3f]
+      - [0xa5, 0x3f]
+      - [0x88, 0x0b]
+      - [0xa8, 0x0b]
+      - [0x89, 0x14]
+      - [0xa9, 0x14]
+      - [0x8a, 0x1a]
+      - [0xaa, 0x1a]
+      - [0x8b, 0x0a]
+      - [0xab, 0x0a]
+      - [0x8c, 0x14]
+      - [0xac, 0x08]
+      - [0x8d, 0x17]
+      - [0xad, 0x07]
+      - [0x8e, 0x16]
+      - [0xae, 0x06]
+      - [0x8f, 0x1B]
+      - [0xaf, 0x07]
+      - [0x90, 0x04]
+      - [0xb0, 0x04]
+      - [0x91, 0x0a]
+      - [0xb1, 0x0a]
+      - [0x92, 0x16]
+      - [0xb2, 0x15]
+      - [0xff, 0x00]
+      - [0x11, 0x00]
+      - [0x29, 0x00]
 
 touchscreen:
-  # JC4827W543C nutzt einen GT911. Falls Du eine andere Variante hast
-  # (z.B. mit CST816), die platform-Zeile entsprechend anpassen.
   - platform: gt911
     id: ts_main
+    display: lcd
     i2c_id: i2c_bus
-    interrupt_pin: GPIO3
+    interrupt_pin:
+      number: GPIO3
+      ignore_strapping_warning: true
     reset_pin: GPIO38
 
 i2c:
   - id: i2c_bus
     sda: GPIO8
     scl: GPIO4
+    frequency: 400kHz
     scan: false
 
 # ---------------------------------------------------------------------------
