@@ -45,9 +45,19 @@ esp32:
     type: esp-idf
     sdkconfig_options:
       CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
-      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
-      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
-      CONFIG_SPIRAM_RODATA: "y"
+      # Schnellerer FreeRTOS-Scheduler (1ms-Tick statt 10ms). LVGL
+      # profitiert davon spuerbar, Render-Tasks bekommen oefter Slots.
+      CONFIG_FREERTOS_HZ: "1000"
+      # Konsole ueber Native USB Serial JTAG des ESP32-S3, nicht UART0
+      # (der ist beim JC4827W543 nicht nach aussen gefuehrt).
+      CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG: "y"
+      CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED: "y"
+      # KEIN CONFIG_SPIRAM_RODATA hier! Das wuerde die LVGL-Fonts ins
+      # PSRAM legen. Der Frame-Buffer ist aber ebenfalls im PSRAM und
+      # konkurriert um Bandbreite -> verwaschene Schrift waehrend
+      # des Renders.
+      # Auch raus: CONFIG_ESP32S3_DATA_CACHE_64KB / _LINE_64B. Die
+      # Cache-Tweaks koennen mit PSRAM-Zugriffen kollidieren.
 
 psram:
   mode: octal
@@ -373,11 +383,12 @@ i2c:
 # LVGL UI
 # ---------------------------------------------------------------------------
 lvgl:
-  # Kein buffer_size hier - Default (volle Frame-Groesse) verhindert
-  # die "gestrichelte" Schrift, die durch partial-buffer Streifen-
-  # Rendering entstand. Wir haben PSRAM, also kein Speicher-Problem.
-  # Kein color_depth: 16 - der Display-Driver legt das Format selbst
-  # fest, doppelte Konfiguration kann fehlerhaftes Pixel-Routing geben.
+  # buffer_size: 25% bewusst. Damit liegt der Frame-Buffer (~65 KB)
+  # im schnellen internen SRAM statt im PSRAM. Default (100%) waeren
+  # ~260 KB und muesste ins PSRAM, was zusammen mit den Font-Daten
+  # die PSRAM-Bandbreite saettigt und verwaschene Schrift erzeugt.
+  buffer_size: 25%
+  color_depth: 16
   bg_color: 0x000000
   text_font: montserrat_20
   default_font: montserrat_20
