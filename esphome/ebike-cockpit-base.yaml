@@ -24,6 +24,13 @@ substitutions:
   # Wochenkilometer (laufende Woche). HA-Template-Sensor noetig.
   entity_week_distance: "sensor.gartenhaus_ebike_week_distance"
 
+  # Hausenergie-Sensoren fuer Page 3.
+  entity_solar_power: "sensor.shelly1pm_3494547656e7_leistung"
+  entity_total_power: "sensor.gesamtstrom"
+  entity_home_battery_soc: "sensor.lilygo_rs485_marstek_battery_state_of_charge"
+  entity_home_battery_power: "sensor.lilygo_rs485_marstek_ac_power"
+  entity_water_flow: "sensor.wasser_water_flow"
+
 esphome:
   name: ${device_name}
   friendly_name: ${friendly_name}
@@ -427,6 +434,82 @@ sensor:
               snprintf(buf, sizeof(buf), "Diese Woche: %.0f km", id(bike_week_distance).state);
               return buf;
 
+  # -------- Page 3: Hausenergie -----------------------------------
+  - platform: homeassistant
+    id: solar_power
+    entity_id: ${entity_solar_power}
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lvgl_solar_power
+            text: !lambda |-
+              static char buf[16];
+              snprintf(buf, sizeof(buf), "%.0f W", id(solar_power).state);
+              return buf;
+
+  - platform: homeassistant
+    id: total_power
+    entity_id: ${entity_total_power}
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lvgl_total_power
+            text: !lambda |-
+              static char buf[16];
+              snprintf(buf, sizeof(buf), "%.0f W", id(total_power).state);
+              return buf;
+
+  - platform: homeassistant
+    id: home_battery_soc
+    entity_id: ${entity_home_battery_soc}
+    on_value:
+      then:
+        - lvgl.bar.update:
+            id: lvgl_home_battery_bar
+            value: !lambda 'return id(home_battery_soc).state;'
+        - lvgl.label.update:
+            id: lvgl_home_battery_pct
+            text: !lambda |-
+              static char buf[8];
+              snprintf(buf, sizeof(buf), "%.0f %%", id(home_battery_soc).state);
+              return buf;
+
+  - platform: homeassistant
+    id: home_battery_power
+    entity_id: ${entity_home_battery_power}
+    on_value:
+      then:
+        - lambda: |-
+            float p = id(home_battery_power).state;
+            char buf[32];
+            lv_color_t col;
+            if (p > 5.0f) {
+              // Positiv = Akku gibt Strom ab (entlaedt)
+              snprintf(buf, sizeof(buf), "Entlaedt %.0f W", p);
+              col = lv_color_hex(0x22C55E);
+            } else if (p < -5.0f) {
+              // Negativ = Akku wird geladen
+              snprintf(buf, sizeof(buf), "Laedt %.0f W", -p);
+              col = lv_color_hex(0x3B82F6);
+            } else {
+              snprintf(buf, sizeof(buf), "Standby");
+              col = lv_color_hex(0x888888);
+            }
+            lv_label_set_text(id(lvgl_home_battery_power), buf);
+            lv_obj_set_style_text_color(id(lvgl_home_battery_power), col, LV_PART_MAIN);
+
+  - platform: homeassistant
+    id: water_flow
+    entity_id: ${entity_water_flow}
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lvgl_water_flow
+            text: !lambda |-
+              static char buf[16];
+              snprintf(buf, sizeof(buf), "%.1f L/min", id(water_flow).state);
+              return buf;
+
 binary_sensor:
   - platform: homeassistant
     id: bike_charging
@@ -517,14 +600,18 @@ script:
                     ESP_LOGW("openmeteo", "JSON parse: %s", err.c_str());
                     return;
                   }
-                  // Aktuelle Werte (Page 1)
+                  // Aktuelle Werte (Page 1 + Page 3)
                   float cur_temp = doc["current"]["temperature_2m"].as<float>();
                   int   cur_code = doc["current"]["weather_code"].as<int>();
                   bool  is_day   = doc["current"]["is_day"].as<int>() != 0;
                   char tbuf[12];
                   snprintf(tbuf, sizeof(tbuf), "%.1f°C", cur_temp);
+                  std::string icon_str = code_to_icon(cur_code, is_day);
                   lv_label_set_text(id(lvgl_weather_temp), tbuf);
-                  lv_label_set_text(id(lvgl_weather_icon), code_to_icon(cur_code, is_day).c_str());
+                  lv_label_set_text(id(lvgl_weather_icon), icon_str.c_str());
+                  // Aussentemperatur auch auf Page 3 (Hausenergie)
+                  lv_label_set_text(id(lvgl_outdoor_temp_p3), tbuf);
+                  lv_label_set_text(id(lvgl_outdoor_icon_p3), icon_str.c_str());
                   // 5-Tage-Forecast (Page 2)
                   static const char* WDAY_DE[7] = {"So","Mo","Di","Mi","Do","Fr","Sa"};
                   auto now = id(ha_time).now();
@@ -536,9 +623,15 @@ script:
                   lv_obj_t* icon_labels[5] = {id(fc_day0_icon), id(fc_day1_icon), id(fc_day2_icon), id(fc_day3_icon), id(fc_day4_icon)};
                   lv_obj_t* max_labels[5]  = {id(fc_day0_max),  id(fc_day1_max),  id(fc_day2_max),  id(fc_day3_max),  id(fc_day4_max)};
                   lv_obj_t* min_labels[5]  = {id(fc_day0_min),  id(fc_day1_min),  id(fc_day2_min),  id(fc_day3_min),  id(fc_day4_min)};
-                  // Temperatur-Farbgebung: ab 20 Grad gruen, darunter blau.
-                  lv_color_t col_warm = lv_color_hex(0x22C55E);
-                  lv_color_t col_cool = lv_color_hex(0x3B82F6);
+                  // Temperatur-Farbgebung in drei Stufen:
+                  //  >= 30 Grad: rot
+                  //  >= 20 Grad: gruen
+                  //  <  20 Grad: blau
+                  auto temp_color = [](float t) -> lv_color_t {
+                    if (t >= 30.0f) return lv_color_hex(0xEF4444);  // rot
+                    if (t >= 20.0f) return lv_color_hex(0x22C55E);  // gruen
+                    return lv_color_hex(0x3B82F6);                  // blau
+                  };
                   for (int i = 0; i < 5; i++) {
                     int   dc = codes[i].as<int>();
                     float dmax = maxes[i].as<float>();
@@ -550,10 +643,8 @@ script:
                     lv_label_set_text(icon_labels[i], code_to_icon(dc, true).c_str());
                     lv_label_set_text(max_labels[i],  mxbuf);
                     lv_label_set_text(min_labels[i],  mnbuf);
-                    lv_obj_set_style_text_color(max_labels[i],
-                      dmax >= 20.0f ? col_warm : col_cool, LV_PART_MAIN);
-                    lv_obj_set_style_text_color(min_labels[i],
-                      dmin >= 20.0f ? col_warm : col_cool, LV_PART_MAIN);
+                    lv_obj_set_style_text_color(max_labels[i], temp_color(dmax), LV_PART_MAIN);
+                    lv_obj_set_style_text_color(min_labels[i], temp_color(dmin), LV_PART_MAIN);
                   }
                   ESP_LOGI("openmeteo", "Weather updated: %.1f°C code=%d", cur_temp, cur_code);
 
@@ -1102,6 +1193,227 @@ lvgl:
                   text_font: font_med
                   text: "--°"
 
+    # =======================================================================
+    # PAGE 3: Hausenergie (Swipe zweimal nach links von Page 1)
+    # PV, Hauptverbrauch, Hausakku, Wasser. Header gleich wie Page 1.
+    # =======================================================================
+    - id: page_energy
+      bg_color: 0x000000
+      widgets:
+        # Top: Datum links + Uhrzeit rechts in rot
+        - obj:
+            x: 0
+            y: 0
+            width: 272
+            height: 32
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 0
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  id: lvgl_date_p3
+                  x: 8
+                  y: 2
+                  width: 130
+                  text_align: LEFT
+                  text_color: 0xFF0000
+                  text_font: font_big
+                  text: "..."
+              - label:
+                  id: lvgl_time_p3
+                  x: 134
+                  y: 2
+                  width: 130
+                  text_align: RIGHT
+                  text_color: 0xFF0000
+                  text_font: font_big
+                  text: "--:--"
+
+        # Duenne rote Linie
+        - obj:
+            x: 0
+            y: 32
+            width: 272
+            height: 2
+            bg_color: 0xFF0000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 0
+
+        # Aussentemperatur zentriert
+        - obj:
+            x: 0
+            y: 38
+            width: 272
+            height: 44
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 4
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  id: lvgl_outdoor_icon_p3
+                  x: 70
+                  y: 4
+                  text_color: 0x60A5FA
+                  text_font: font_weather
+                  text: ""
+              - label:
+                  id: lvgl_outdoor_temp_p3
+                  x: 110
+                  y: 6
+                  width: 130
+                  text_align: LEFT
+                  text_color: 0xCCCCCC
+                  text_font: font_big
+                  text: "--°C"
+
+        # PV-Leistung
+        - obj:
+            x: 0
+            y: 92
+            width: 272
+            height: 40
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 4
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  x: 12
+                  y: 6
+                  width: 100
+                  text_color: 0xFACC15
+                  text_font: font_med
+                  text: "PV"
+              - label:
+                  id: lvgl_solar_power
+                  x: 100
+                  y: 2
+                  width: 160
+                  text_align: RIGHT
+                  text_color: 0xFACC15
+                  text_font: font_big
+                  text: "-- W"
+
+        # Aktueller Verbrauch
+        - obj:
+            x: 0
+            y: 138
+            width: 272
+            height: 40
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 4
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  x: 12
+                  y: 6
+                  width: 100
+                  text_color: 0xFB923C
+                  text_font: font_med
+                  text: "Verbrauch"
+              - label:
+                  id: lvgl_total_power
+                  x: 100
+                  y: 2
+                  width: 160
+                  text_align: RIGHT
+                  text_color: 0xFB923C
+                  text_font: font_big
+                  text: "-- W"
+
+        # Hausakku SoC + Bar + Lade-/Entladeleistung
+        - obj:
+            x: 0
+            y: 188
+            width: 272
+            height: 100
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 4
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  x: 12
+                  y: 6
+                  width: 130
+                  text_color: 0x22C55E
+                  text_font: font_med
+                  text: "Hausakku"
+              - label:
+                  id: lvgl_home_battery_pct
+                  x: 100
+                  y: 2
+                  width: 160
+                  text_align: RIGHT
+                  text_color: 0x22C55E
+                  text_font: font_big
+                  text: "-- %"
+              - bar:
+                  id: lvgl_home_battery_bar
+                  x: 16
+                  y: 44
+                  width: 240
+                  height: 14
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  indicator:
+                    bg_color: 0x22C55E
+                    bg_opa: COVER
+              - label:
+                  id: lvgl_home_battery_power
+                  x: 0
+                  y: 64
+                  width: 272
+                  text_align: CENTER
+                  text_color: 0xAAAAAA
+                  text_font: font_med
+                  text: ""
+
+        # Wasser (Footer)
+        - obj:
+            x: 0
+            y: 428
+            width: 272
+            height: 44
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 4
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  x: 12
+                  y: 8
+                  width: 100
+                  text_color: 0x60A5FA
+                  text_font: font_med
+                  text: "Wasser"
+              - label:
+                  id: lvgl_water_flow
+                  x: 100
+                  y: 2
+                  width: 160
+                  text_align: RIGHT
+                  text_color: 0x60A5FA
+                  text_font: font_big
+                  text: "-- L/min"
+
 # ---------------------------------------------------------------------------
 # Periodische Updates fuer Datum/Uhrzeit
 # Backlight-Idle-Dimming temporaer DEAKTIVIERT - waehrend Diagnose volle
@@ -1116,24 +1428,21 @@ interval:
 
   - interval: 1s
     then:
-      - lvgl.label.update:
-          id: lvgl_date
-          text: !lambda |-
-            auto t = id(ha_time).now();
-            if (!t.is_valid()) return std::string("...");
+      - lambda: |-
+          // Datum + Uhrzeit auf Page 1 UND Page 3 synchron halten.
+          auto t = id(ha_time).now();
+          char dbuf[16], tbuf[8];
+          if (!t.is_valid()) {
+            snprintf(dbuf, sizeof(dbuf), "...");
+            snprintf(tbuf, sizeof(tbuf), "--:--");
+          } else {
             static const char* days[7] = {"So","Mo","Di","Mi","Do","Fr","Sa"};
             auto ct = t.to_c_tm();
             int wd = ct.tm_wday; if (wd < 0 || wd > 6) wd = 0;
-            char b[16];
-            // Kompaktformat fuer die linke Haelfte oben: "Mo 29.5."
-            snprintf(b, sizeof(b), "%s %d.%d.", days[wd], ct.tm_mday, ct.tm_mon + 1);
-            return std::string(b);
-      - lvgl.label.update:
-          id: lvgl_time
-          text: !lambda |-
-            char b[8];
-            auto t = id(ha_time).now();
-            if (!t.is_valid()) return std::string("--:--");
-            auto ct = t.to_c_tm();
-            strftime(b, sizeof(b), "%H:%M", &ct);
-            return std::string(b);
+            snprintf(dbuf, sizeof(dbuf), "%s %d.%d.", days[wd], ct.tm_mday, ct.tm_mon + 1);
+            strftime(tbuf, sizeof(tbuf), "%H:%M", &ct);
+          }
+          lv_label_set_text(id(lvgl_date), dbuf);
+          lv_label_set_text(id(lvgl_time), tbuf);
+          lv_label_set_text(id(lvgl_date_p3), dbuf);
+          lv_label_set_text(id(lvgl_time_p3), tbuf);
