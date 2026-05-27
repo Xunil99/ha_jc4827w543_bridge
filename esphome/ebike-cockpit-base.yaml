@@ -11,7 +11,7 @@
 #  - Optional: Helligkeit, Sleep-Zeiten
 
 substitutions:
-  device_name: "ebike-cockpit"
+  device_name: "esphome-web-4e0964"
   friendly_name: "eBike Cockpit"
   bike: "drive_unit_performance_line_cx"
   bike_name: "Performance CX"
@@ -45,11 +45,11 @@ logger:
   hardware_uart: USB_SERIAL_JTAG
 
 api:
-  encryption:
-    key: !secret api_encryption_key
+#  encryption:
+#    key: !secret api_encryption_key
 ota:
   - platform: esphome
-    password: !secret ota_password
+#    password: !secret ota_password
 
 wifi:
   ssid: !secret wifi_ssid
