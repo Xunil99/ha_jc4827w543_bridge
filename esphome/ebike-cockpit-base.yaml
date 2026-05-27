@@ -131,7 +131,8 @@ display:
     init_sequence:
       - [0xff, 0xa5]
       - [0x36, 0xc0]
-      - [0x3A, 0x01]
+      # 0x3A (COLMOD/PIXFMT) wird von mipi_spi automatisch gesetzt und
+      # darf nicht in der init_sequence stehen, sonst Config-Error.
       - [0x41, 0x03]
       - [0x44, 0x15]
       - [0x45, 0x15]
