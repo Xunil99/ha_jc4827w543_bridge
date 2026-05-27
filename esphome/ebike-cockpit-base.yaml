@@ -33,6 +33,7 @@ substitutions:
   entity_mg4_soc: "sensor.lsjwh4096pn212860_soc"
   entity_mg4_charge_power: "sensor.shelly_mg_steckdose_leistung"
   entity_mg4_socket_temp: "sensor.shellyoutdoorsg3_e4b063f9cb2c_temperatur"
+  entity_mg4_speed: "sensor.lsjwh4096pn212860_vehicle_speed"
 
 esphome:
   name: ${device_name}
@@ -561,6 +562,13 @@ sensor:
         - script.execute: update_mg4_charge_label
 
   - platform: homeassistant
+    id: mg4_speed
+    entity_id: ${entity_mg4_speed}
+    on_value:
+      then:
+        - script.execute: update_mg4_charge_label
+
+  - platform: homeassistant
     id: water_flow
     entity_id: ${entity_water_flow}
     on_value:
@@ -632,26 +640,34 @@ http_request:
   timeout: 10s
 
 script:
-  # Aktualisiert das MG4-Lade-Label aus zwei HA-Sensoren (Steckdosen-
-  # Leistung + Steckdosen-Temperatur). Wird von beiden Sensor-on_value-
-  # Triggern aufgerufen, damit das Label aktuell bleibt wenn sich
-  # einer der beiden Werte aendert.
+  # Aktualisiert das MG4-Status-Label unter dem Bar. Drei Zustaende mit
+  # Prioritaet: Geschwindigkeit > 0 schlaegt alles andere (Auto faehrt),
+  # sonst Lade-Info falls Steckdose > 10 W, sonst leer.
   - id: update_mg4_charge_label
     then:
       - lambda: |-
+          float v = id(mg4_speed).state;
           float p = id(mg4_charge_power).state;
           char buf[48];
-          if (p > 10.0f) {
+          lv_color_t col = lv_color_hex(0x3B82F6);  // Default blau
+          if (v > 0.0f) {
+            // Auto faehrt
+            snprintf(buf, sizeof(buf), "fährt %.0f km/h", v);
+            col = lv_color_hex(0xFB923C);  // orange
+          } else if (p > 10.0f) {
+            // Auto laedt
             float t = id(mg4_socket_temp).state;
             if (!std::isnan(t)) {
               snprintf(buf, sizeof(buf), "lädt %.0f W (%.1f°C)", p, t);
             } else {
               snprintf(buf, sizeof(buf), "lädt %.0f W", p);
             }
+            col = lv_color_hex(0x3B82F6);  // blau
           } else {
             buf[0] = '\0';
           }
           lv_label_set_text(id(lvgl_mg4_charge_power), buf);
+          lv_obj_set_style_text_color(id(lvgl_mg4_charge_power), col, LV_PART_MAIN);
 
   - id: fetch_weather
     then:
