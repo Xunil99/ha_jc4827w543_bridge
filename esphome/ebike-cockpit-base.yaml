@@ -29,7 +29,9 @@ substitutions:
   entity_total_power: "sensor.gesamtstrom"
   entity_home_battery_soc: "sensor.lilygo_rs485_marstek_battery_state_of_charge"
   entity_home_battery_power: "sensor.lilygo_rs485_marstek_ac_power"
-  entity_water_flow: "sensor.wasser_water_flow"
+  # Calendar fuer naechsten Muell-Termin o.ae.
+  # (statt entity_water_flow). Erwartet eine HA-calendar-Entity.
+  entity_calendar: "calendar.awido_online"
   entity_mg4_soc: "sensor.lsjwh4096pn212860_soc"
   entity_mg4_charge_power: "sensor.shelly_mg_steckdose_leistung"
   entity_mg4_socket_temp: "sensor.shellyoutdoorsg3_e4b063f9cb2c_temperatur"
@@ -568,17 +570,7 @@ sensor:
       then:
         - script.execute: update_mg4_charge_label
 
-  - platform: homeassistant
-    id: water_flow
-    entity_id: ${entity_water_flow}
-    on_value:
-      then:
-        - lvgl.label.update:
-            id: lvgl_water_flow
-            text: !lambda |-
-              static char buf[16];
-              snprintf(buf, sizeof(buf), "%.1f L/min", id(water_flow).state);
-              return buf;
+  # (water_flow durch calendar ersetzt - siehe text_sensor-Block unten)
 
 binary_sensor:
   - platform: homeassistant
@@ -600,6 +592,24 @@ text_sensor:
         - lvgl.label.update:
             id: lvgl_maint_next
             text: !lambda 'return id(bike_maint_next).state.c_str();'
+
+  # Naechster Kalender-Termin (z.B. Restmuell). Zwei Attribute der
+  # calendar-Entity einzeln auslesen: 'message' = Titel des Termins,
+  # 'start_time' = ISO-Datetime (UTC) des Starts.
+  - platform: homeassistant
+    id: cal_message
+    entity_id: ${entity_calendar}
+    attribute: message
+    on_value:
+      then:
+        - script.execute: update_calendar_label
+  - platform: homeassistant
+    id: cal_start
+    entity_id: ${entity_calendar}
+    attribute: start_time
+    on_value:
+      then:
+        - script.execute: update_calendar_label
 
   # Sonnenaufgang + Sonnenuntergang aus dem ESPHome-sun:-Component
   # berechnet. Kein HA-Template-Sensor mehr noetig. Lokale Zeitzone
@@ -668,6 +678,47 @@ script:
           }
           lv_label_set_text(id(lvgl_mg4_charge_power), buf);
           lv_obj_set_style_text_color(id(lvgl_mg4_charge_power), col, LV_PART_MAIN);
+
+  # Naechster Kalender-Termin: 'message' und 'start_time' aus HA holen,
+  # ISO-Datum parsen, deutsche Wochentags-/Monatsbezeichnung bauen.
+  - id: update_calendar_label
+    then:
+      - lambda: |-
+          const std::string& msg = id(cal_message).state;
+          const std::string& start = id(cal_start).state;
+          if (msg.empty() || start.empty()) {
+            lv_label_set_text(id(lvgl_calendar_date), "");
+            lv_label_set_text(id(lvgl_calendar_title), "");
+            return;
+          }
+          // Erwartetes Format: '2026-06-03T07:00:00+00:00' oder '2026-06-03'
+          int y = 0, mo = 0, d = 0;
+          if (sscanf(start.c_str(), "%d-%d-%d", &y, &mo, &d) != 3) {
+            lv_label_set_text(id(lvgl_calendar_date), "");
+            lv_label_set_text(id(lvgl_calendar_title), msg.c_str());
+            return;
+          }
+          // Wochentag via mktime ermitteln
+          struct tm tm = {};
+          tm.tm_year = y - 1900;
+          tm.tm_mon  = mo - 1;
+          tm.tm_mday = d;
+          tm.tm_hour = 12;  // Mittag, vermeidet DST-Edge-Cases
+          mktime(&tm);
+          static const char* WDAY_LONG[7] = {
+            "Sonntag","Montag","Dienstag","Mittwoch",
+            "Donnerstag","Freitag","Samstag"
+          };
+          static const char* MONTH_LONG[12] = {
+            "Januar","Februar","März","April","Mai","Juni",
+            "Juli","August","September","Oktober","November","Dezember"
+          };
+          int wd = tm.tm_wday; if (wd < 0 || wd > 6) wd = 0;
+          int mi = mo - 1;     if (mi < 0 || mi > 11) mi = 0;
+          char dbuf[64];
+          snprintf(dbuf, sizeof(dbuf), "%s, %d. %s", WDAY_LONG[wd], d, MONTH_LONG[mi]);
+          lv_label_set_text(id(lvgl_calendar_date), dbuf);
+          lv_label_set_text(id(lvgl_calendar_title), msg.c_str());
 
   - id: fetch_weather
     then:
@@ -1537,35 +1588,37 @@ lvgl:
                   text_font: font_med
                   text: ""
 
-        # Wasser (Footer)
+        # Naechster Kalender-Termin (Footer, zwei Zeilen)
         - obj:
             x: 0
-            y: 428
+            y: 410
             width: 272
-            height: 44
+            height: 62
             bg_color: 0x000000
             bg_opa: COVER
             border_width: 0
-            pad_all: 4
+            pad_all: 2
             scrollbar_mode: "off"
             scrollable: false
             widgets:
               - label:
-                  x: 12
-                  y: 8
-                  width: 100
-                  text_color: 0x60A5FA
-                  text_font: font_med
-                  text: "Wasser"
-              - label:
-                  id: lvgl_water_flow
-                  x: 100
+                  id: lvgl_calendar_date
+                  x: 0
                   y: 2
-                  width: 160
-                  text_align: RIGHT
-                  text_color: 0x60A5FA
+                  width: 272
+                  text_align: CENTER
+                  text_color: 0xCCCCCC
+                  text_font: font_med
+                  text: ""
+              - label:
+                  id: lvgl_calendar_title
+                  x: 0
+                  y: 30
+                  width: 272
+                  text_align: CENTER
+                  text_color: 0xFACC15
                   text_font: font_big
-                  text: "-- L/min"
+                  text: ""
 
 # ---------------------------------------------------------------------------
 # Periodische Updates fuer Datum/Uhrzeit
