@@ -31,6 +31,7 @@ substitutions:
   entity_home_battery_power: "sensor.lilygo_rs485_marstek_ac_power"
   entity_water_flow: "sensor.wasser_water_flow"
   entity_mg4_soc: "sensor.lsjwh4096pn212860_soc"
+  entity_mg4_charge_power: "sensor.shelly_mg_steckdose_leistung"
 
 esphome:
   name: ${device_name}
@@ -520,6 +521,21 @@ sensor:
               static char buf[8];
               snprintf(buf, sizeof(buf), "%.0f %%", id(mg4_soc).state);
               return buf;
+
+  - platform: homeassistant
+    id: mg4_charge_power
+    entity_id: ${entity_mg4_charge_power}
+    on_value:
+      then:
+        - lambda: |-
+            float p = id(mg4_charge_power).state;
+            char buf[24];
+            if (p > 10.0f) {
+              snprintf(buf, sizeof(buf), "lädt %.0f W", p);
+            } else {
+              buf[0] = '\0';
+            }
+            lv_label_set_text(id(lvgl_mg4_charge_power), buf);
 
   - platform: homeassistant
     id: water_flow
@@ -1408,12 +1424,12 @@ lvgl:
                   text_font: font_med
                   text: ""
 
-        # MG4 SoC mit Bar
+        # MG4 SoC + Bar + Ladestatus
         - obj:
             x: 0
             y: 296
             width: 272
-            height: 76
+            height: 100
             bg_color: 0x000000
             bg_opa: COVER
             border_width: 0
@@ -1449,6 +1465,16 @@ lvgl:
                   indicator:
                     bg_color: 0x06B6D4
                     bg_opa: COVER
+              # Ladestatus: leer wenn Steckdose < 10 W, sonst 'lädt X W'
+              - label:
+                  id: lvgl_mg4_charge_power
+                  x: 0
+                  y: 64
+                  width: 272
+                  text_align: CENTER
+                  text_color: 0x3B82F6
+                  text_font: font_med
+                  text: ""
 
         # Wasser (Footer)
         - obj:
