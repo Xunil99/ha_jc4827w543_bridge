@@ -36,6 +36,10 @@ substitutions:
   entity_mg4_charge_power: "sensor.shelly_mg_steckdose_leistung"
   entity_mg4_socket_temp: "sensor.shellyoutdoorsg3_e4b063f9cb2c_temperatur"
   entity_mg4_speed: "sensor.lsjwh4096pn212860_vehicle_speed"
+  entity_mg4_mileage: "sensor.lsjwh4096pn212860_mileage"
+  entity_mg4_range: "sensor.lsjwh4096pn212860_range"
+  entity_mg4_charging: "binary_sensor.lsjwh4096pn212860_battery_charging"
+  entity_mg4_remaining_time: "sensor.lsjwh4096pn212860_remaining_charging_time"
 
 esphome:
   name: ${device_name}
@@ -539,15 +543,16 @@ sensor:
     entity_id: ${entity_mg4_soc}
     on_value:
       then:
-        - lvgl.bar.update:
-            id: lvgl_mg4_bar
-            value: !lambda 'return id(mg4_soc).state;'
-        - lvgl.label.update:
-            id: lvgl_mg4_pct
-            text: !lambda |-
-              static char buf[8];
-              snprintf(buf, sizeof(buf), "%.0f %%", id(mg4_soc).state);
-              return buf;
+        - lambda: |-
+            float s = id(mg4_soc).state;
+            char pbuf[8];
+            snprintf(pbuf, sizeof(pbuf), "%.0f %%", s);
+            // Page 3 (Hausenergie)
+            lv_label_set_text(id(lvgl_mg4_pct), pbuf);
+            lv_bar_set_value(id(lvgl_mg4_bar), (int32_t)s, LV_ANIM_OFF);
+            // Page 4 (MG4 Detail)
+            lv_label_set_text(id(lvgl_mg4_pct_p4), pbuf);
+            lv_bar_set_value(id(lvgl_mg4_bar_p4), (int32_t)s, LV_ANIM_OFF);
 
   - platform: homeassistant
     id: mg4_charge_power
@@ -570,6 +575,37 @@ sensor:
       then:
         - script.execute: update_mg4_charge_label
 
+  - platform: homeassistant
+    id: mg4_mileage
+    entity_id: ${entity_mg4_mileage}
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lvgl_mg4_mileage_p4
+            text: !lambda |-
+              static char buf[24];
+              snprintf(buf, sizeof(buf), "%.0f km", id(mg4_mileage).state);
+              return buf;
+
+  - platform: homeassistant
+    id: mg4_range
+    entity_id: ${entity_mg4_range}
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lvgl_mg4_range_p4
+            text: !lambda |-
+              static char buf[24];
+              snprintf(buf, sizeof(buf), "%.0f km", id(mg4_range).state);
+              return buf;
+
+  - platform: homeassistant
+    id: mg4_remaining_time
+    entity_id: ${entity_mg4_remaining_time}
+    on_value:
+      then:
+        - script.execute: update_mg4_charge_end_label
+
   # (water_flow durch calendar ersetzt - siehe text_sensor-Block unten)
 
 binary_sensor:
@@ -581,6 +617,16 @@ binary_sensor:
         - lvgl.label.update:
             id: lvgl_charge_icon
             text: !lambda 'return std::string(id(bike_charging).state ? "Laedt" : "");'
+
+  # MG4-Lade-Status fuer Page 4 (Detail-Bildschirm). Triggert das
+  # gemeinsame Update-Script, das auch beim Wechsel des Remaining-Time
+  # zum Zug kommt.
+  - platform: homeassistant
+    id: mg4_charging
+    entity_id: ${entity_mg4_charging}
+    on_state:
+      then:
+        - script.execute: update_mg4_charge_end_label
 
 
 text_sensor:
@@ -678,6 +724,37 @@ script:
           }
           lv_label_set_text(id(lvgl_mg4_charge_power), buf);
           lv_obj_set_style_text_color(id(lvgl_mg4_charge_power), col, LV_PART_MAIN);
+
+  # MG4-Ladezeitende fuer Page 4: aus binary_sensor (charging?) und
+  # sensor (remaining seconds) den voraussichtlichen Endzeitpunkt bauen.
+  - id: update_mg4_charge_end_label
+    then:
+      - lambda: |-
+          bool charging = id(mg4_charging).state;
+          float rem_f = id(mg4_remaining_time).state;
+          int remaining = std::isnan(rem_f) ? 0 : (int)rem_f;
+          char buf[40];
+          if (charging && remaining > 0) {
+            auto now = id(ha_time).now();
+            if (now.is_valid()) {
+              time_t end_ts = (time_t)now.timestamp + remaining;
+              struct tm *end_tm = localtime(&end_ts);
+              if (end_tm != nullptr) {
+                strftime(buf, sizeof(buf), "fertig um %H:%M", end_tm);
+                lv_label_set_text(id(lvgl_mg4_charge_end_p4), buf);
+                return;
+              }
+            }
+            // Fallback ohne gueltige Zeit: Restdauer
+            int h = remaining / 3600;
+            int m = (remaining % 3600) / 60;
+            snprintf(buf, sizeof(buf), "noch %dh %02dmin", h, m);
+            lv_label_set_text(id(lvgl_mg4_charge_end_p4), buf);
+          } else if (charging) {
+            lv_label_set_text(id(lvgl_mg4_charge_end_p4), "lädt");
+          } else {
+            lv_label_set_text(id(lvgl_mg4_charge_end_p4), "");
+          }
 
   # Naechster Kalender-Termin: 'message' und 'start_time' aus HA holen,
   # ISO-Datum parsen, deutsche Wochentags-/Monatsbezeichnung bauen.
@@ -1555,6 +1632,7 @@ lvgl:
                   text: ""
 
         # MG4 SoC + Bar + Ladestatus
+        # Tap auf diesen Container oeffnet die MG4-Detailseite (Page 4).
         - obj:
             x: 0
             y: 296
@@ -1566,6 +1644,10 @@ lvgl:
             pad_all: 4
             scrollbar_mode: "off"
             scrollable: false
+            clickable: true
+            on_short_click:
+              then:
+                - lvgl.page.show: page_mg4_detail
             widgets:
               - label:
                   x: 12
@@ -1638,6 +1720,223 @@ lvgl:
                   text_font: font_big
                   text: ""
 
+    # =======================================================================
+    # PAGE 4: MG4-Detail (nur per Tap aus der MG4-Sektion auf Page 3
+    # erreichbar, dank 'skip: true' nicht in der Swipe-Sequenz).
+    # Tap auf den Bildschirm -> zurueck zu Page 3.
+    # =======================================================================
+    - id: page_mg4_detail
+      bg_color: 0x000000
+      skip: true
+      on_short_click:
+        then:
+          - lvgl.page.show: page_energy
+      widgets:
+        # Top: Datum + Uhrzeit (gleich wie andere Pages)
+        - obj:
+            x: 0
+            y: 0
+            width: 272
+            height: 32
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 0
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  id: lvgl_date_p4
+                  x: 8
+                  y: 2
+                  width: 130
+                  text_align: LEFT
+                  text_color: 0xFF0000
+                  text_font: font_big
+                  text: "..."
+              - label:
+                  id: lvgl_time_p4
+                  x: 134
+                  y: 2
+                  width: 130
+                  text_align: RIGHT
+                  text_color: 0xFF0000
+                  text_font: font_big
+                  text: "--:--"
+
+        # Rote Linie
+        - obj:
+            x: 0
+            y: 32
+            width: 272
+            height: 2
+            bg_color: 0xFF0000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 0
+
+        # MG4-Header
+        - obj:
+            x: 0
+            y: 38
+            width: 272
+            height: 36
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 4
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  x: 0
+                  y: 4
+                  width: 272
+                  text_align: CENTER
+                  text_color: 0x06B6D4
+                  text_font: font_big
+                  text: "MG4"
+
+        # SoC ganz gross + Bar
+        - obj:
+            x: 0
+            y: 82
+            width: 272
+            height: 92
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 4
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  id: lvgl_mg4_pct_p4
+                  x: 0
+                  y: 0
+                  width: 272
+                  text_align: CENTER
+                  text_color: 0x06B6D4
+                  text_font: font_huge
+                  text: "-- %"
+              - bar:
+                  id: lvgl_mg4_bar_p4
+                  x: 16
+                  y: 64
+                  width: 240
+                  height: 16
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  indicator:
+                    bg_color: 0x06B6D4
+                    bg_opa: COVER
+
+        # Kilometerstand
+        - obj:
+            x: 0
+            y: 184
+            width: 272
+            height: 40
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 4
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  x: 12
+                  y: 6
+                  width: 130
+                  text_color: 0xCCCCCC
+                  text_font: font_med
+                  text: "Kilometer"
+              - label:
+                  id: lvgl_mg4_mileage_p4
+                  x: 100
+                  y: 2
+                  width: 160
+                  text_align: RIGHT
+                  text_color: 0xFFFFFF
+                  text_font: font_big
+                  text: "-- km"
+
+        # Restreichweite
+        - obj:
+            x: 0
+            y: 230
+            width: 272
+            height: 40
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 4
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  x: 12
+                  y: 6
+                  width: 130
+                  text_color: 0xCCCCCC
+                  text_font: font_med
+                  text: "Reichweite"
+              - label:
+                  id: lvgl_mg4_range_p4
+                  x: 100
+                  y: 2
+                  width: 160
+                  text_align: RIGHT
+                  text_color: 0xFFFFFF
+                  text_font: font_big
+                  text: "-- km"
+
+        # Ladestatus / Ladezeitende
+        - obj:
+            x: 0
+            y: 280
+            width: 272
+            height: 50
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 4
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  id: lvgl_mg4_charge_end_p4
+                  x: 0
+                  y: 6
+                  width: 272
+                  text_align: CENTER
+                  text_color: 0x3B82F6
+                  text_font: font_big
+                  text: ""
+
+        # Hinweis zum Zuruecknavigieren
+        - obj:
+            x: 0
+            y: 444
+            width: 272
+            height: 28
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 2
+            scrollbar_mode: "off"
+            scrollable: false
+            widgets:
+              - label:
+                  x: 0
+                  y: 0
+                  width: 272
+                  text_align: CENTER
+                  text_color: 0x666666
+                  text_font: font_small
+                  text: "Tippen zum Zurueckkehren"
+
 # ---------------------------------------------------------------------------
 # Periodische Updates fuer Datum/Uhrzeit
 # Backlight-Idle-Dimming temporaer DEAKTIVIERT - waehrend Diagnose volle
@@ -1678,3 +1977,5 @@ interval:
           lv_label_set_text(id(lvgl_time), tbuf);
           lv_label_set_text(id(lvgl_date_p3), dbuf);
           lv_label_set_text(id(lvgl_time_p3), tbuf);
+          lv_label_set_text(id(lvgl_date_p4), dbuf);
+          lv_label_set_text(id(lvgl_time_p4), tbuf);
