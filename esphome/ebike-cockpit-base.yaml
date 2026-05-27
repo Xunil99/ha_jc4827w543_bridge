@@ -24,10 +24,12 @@ substitutions:
   # Entitaet bei Dir anders heisst (z.B. weather.forecast_home), hier
   # umbiegen.
   entity_weather: "weather.wetter"
-  # Sonnenuntergang als HH:MM-Local-Time-String. HA-Template-Sensor
-  # noetig (siehe README). Default-Name passend zum Template-Beispiel.
-  entity_sunset: "sensor.sun_next_setting_local"
-  entity_sunrise: "sensor.sun_next_rising_local"
+  # Koordinaten fuer Sonnenauf- und -untergangsberechnung direkt im ESP
+  # (ESPHome sun: component). Default ist Berlin-Mitte, einmal auf die
+  # Heimat-Koordinaten setzen, dann kommen die Zeiten ohne weiteren
+  # HA-Sensor automatisch raus.
+  home_latitude: "52.520008"
+  home_longitude: "13.404954"
   # Wochenkilometer (laufende Woche). HA-Template-Sensor noetig.
   entity_week_distance: "sensor.gartenhaus_ebike_week_distance"
   # 5-Tage-Wetter als compact-string: cond1|max1|min1|cond2|max2|min2|...
@@ -97,6 +99,14 @@ time:
     servers:
       - 0.pool.ntp.org
       - 1.pool.ntp.org
+
+# Sonnenauf-/untergang lokal berechnen aus Koordinaten - kein
+# HA-Template-Sensor noetig. ESPHome's sun: component nutzt das
+# Standard-NOAA-Algorithmus, Genauigkeit besser als 1 Minute.
+sun:
+  id: home_sun
+  latitude: ${home_latitude}
+  longitude: ${home_longitude}
 
 i2c:
   - id: bus_a
@@ -455,24 +465,31 @@ text_sensor:
             id: lvgl_maint_next
             text: !lambda 'return id(bike_maint_next).state.c_str();'
 
-  # Sonnenaufgang + Sonnenuntergang als bereits formatierte HH:MM-Local-
-  # Time-Strings. Beide brauchen einen HA-Template-Sensor (siehe README).
-  - platform: homeassistant
-    id: ha_sunrise
-    entity_id: ${entity_sunrise}
+  # Sonnenaufgang + Sonnenuntergang aus dem ESPHome-sun:-Component
+  # berechnet. Kein HA-Template-Sensor mehr noetig. Lokale Zeitzone
+  # wird automatisch aus der time:-Konfiguration uebernommen.
+  - platform: sun
+    sun_id: home_sun
+    name: "Sun Next Rising"
+    type: sunrise
+    format: "%H:%M"
+    id: esp_sunrise
     on_value:
       then:
         - lvgl.label.update:
             id: lvgl_sunrise
-            text: !lambda 'return std::string("\xE2\x86\x91 ") + id(ha_sunrise).state;'
-  - platform: homeassistant
-    id: ha_sunset
-    entity_id: ${entity_sunset}
+            text: !lambda 'return std::string("\xE2\x86\x91 ") + x;'
+  - platform: sun
+    sun_id: home_sun
+    name: "Sun Next Setting"
+    type: sunset
+    format: "%H:%M"
+    id: esp_sunset
     on_value:
       then:
         - lvgl.label.update:
             id: lvgl_sunset
-            text: !lambda 'return std::string("\xE2\x86\x93 ") + id(ha_sunset).state;'
+            text: !lambda 'return std::string("\xE2\x86\x93 ") + x;'
 
   # 5-Tage-Forecast als compact-string. Wird bei jedem Update geparst
   # und in die 15 Day-Widgets der Page 2 verteilt.

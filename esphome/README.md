@@ -68,26 +68,25 @@ template:
           {{ state_attr('sensor.performance_cx_maintenance', 'next_label') | default('', true) }}
 ```
 
-## Beispiel-Template-Sensoren: Sonnenaufgang + Sonnenuntergang
+## Sonnenauf- und Sonnenuntergang: Koordinaten setzen
 
-Beide Werte als HH:MM-String der Lokalzeit. Werden auf dem Display unter
-dem Bike-Namen als `↑ 05:42`  `↓ 20:32` nebeneinander gezeigt.
+**Kein HA-Template-Sensor mehr noetig.** ESPHome's eingebautes
+`sun:`-Component berechnet Sonnenauf- und -untergang direkt aus
+Laengen- und Breitengrad. Einmal die Heimat-Koordinaten in den
+Substitutions setzen:
 
 ```yaml
-template:
-  - sensor:
-      - name: "Sun Next Rising Local"
-        unique_id: sun_next_rising_local
-        state: >
-          {{ as_local(as_datetime(state_attr('sun.sun', 'next_rising'))).strftime('%H:%M') }}
-        availability: "{{ states('sun.sun') != 'unavailable' }}"
-
-      - name: "Sun Next Setting Local"
-        unique_id: sun_next_setting_local
-        state: >
-          {{ as_local(as_datetime(state_attr('sun.sun', 'next_setting'))).strftime('%H:%M') }}
-        availability: "{{ states('sun.sun') != 'unavailable' }}"
+substitutions:
+  home_latitude: "52.520008"    # Default: Berlin-Mitte
+  home_longitude: "13.404954"
 ```
+
+Die Werte fuer das eigene Zuhause findest Du in den HA-Einstellungen
+unter Einstellungen → System → Allgemein → Standort (oder einmal kurz
+auf [openstreetmap.org](https://www.openstreetmap.org/) den Standort
+suchen und Koordinaten ablesen).
+
+Der NOAA-Algorithmus im sun:-Component ist auf rund eine Minute genau.
 
 ## Beispiel-Template-Sensor: `gartenhaus_ebike_week_distance`
 
